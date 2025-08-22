@@ -1,7 +1,165 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import '../database/database_helper.dart';
+import '../models/user.dart';
+import '../models/user_score.dart';
+import '../models/achievement.dart';
 
-class ProfileDrawer extends StatelessWidget {
+class ProfileDrawer extends StatefulWidget {
   const ProfileDrawer({super.key});
+
+  @override
+  State<ProfileDrawer> createState() => _ProfileDrawerState();
+}
+
+class _ProfileDrawerState extends State<ProfileDrawer> {
+  final DatabaseHelper _databaseHelper = DatabaseHelper();
+  User? _currentUser;
+  int _totalScore = 0;
+  int _achievementsCount = 0;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      // 获取默认用户
+      _currentUser = await _databaseHelper.getUserByUsername('default_user');
+
+      if (_currentUser != null) {
+        // 加载积分和成就数据
+        _totalScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+        _achievementsCount = await _databaseHelper.getUnlockedAchievementsCount(
+          _currentUser!.id!,
+        );
+
+        setState(() {});
+      }
+    } catch (e) {
+      print('加载用户数据失败: $e');
+    }
+  }
+
+  // 选择头像
+  Future<void> _pickAvatar() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+
+      if (image != null && _currentUser != null) {
+        // 更新用户头像路径
+        final updatedUser = _currentUser!.copyWith(
+          avatarPath: image.path,
+          updatedAt: DateTime.now(),
+        );
+
+        await _databaseHelper.updateUser(updatedUser);
+        _currentUser = updatedUser;
+        setState(() {});
+      }
+    } catch (e) {
+      print('选择头像失败: $e');
+    }
+  }
+
+  // 编辑昵称
+  Future<void> _editNickname() async {
+    if (_currentUser == null) return;
+
+    final TextEditingController controller = TextEditingController(
+      text: _currentUser!.nickname ?? '',
+    );
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('编辑昵称'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: '昵称', hintText: '请输入昵称'),
+          maxLength: 20,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.trim().isNotEmpty) {
+      final updatedUser = _currentUser!.copyWith(
+        nickname: result.trim(),
+        updatedAt: DateTime.now(),
+      );
+
+      await _databaseHelper.updateUser(updatedUser);
+      _currentUser = updatedUser;
+      setState(() {});
+    }
+  }
+
+  // 编辑个人简介
+  Future<void> _editBio() async {
+    if (_currentUser == null) return;
+
+    final TextEditingController controller = TextEditingController(
+      text: _currentUser!.bio ?? '',
+    );
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('编辑个人简介'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: '个人简介',
+            hintText: '请输入个人简介',
+          ),
+          maxLines: 3,
+          maxLength: 100,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      final updatedUser = _currentUser!.copyWith(
+        bio: result.trim(),
+        updatedAt: DateTime.now(),
+      );
+
+      await _databaseHelper.updateUser(updatedUser);
+      _currentUser = updatedUser;
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,25 +200,91 @@ class ProfileDrawer extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            // 用户头像
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: Colors.white,
-              child: Icon(Icons.person, size: 40, color: Colors.red[700]),
+            // 用户头像 - 可点击选择
+            GestureDetector(
+              onTap: _pickAvatar,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white,
+                    backgroundImage: _currentUser?.avatarPath != null
+                        ? FileImage(File(_currentUser!.avatarPath!))
+                        : null,
+                    child: _currentUser?.avatarPath == null
+                        ? Icon(Icons.person, size: 40, color: Colors.red[700])
+                        : null,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.camera_alt,
+                        size: 16,
+                        color: Colors.red[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
 
-            // 用户姓名
-            const Text(
-              '红色文化学习者',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            // 用户昵称 - 可点击编辑
+            GestureDetector(
+              onTap: _editNickname,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _currentUser?.nickname ?? '红色文化学习者',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.edit,
+                    size: 16,
+                    color: Colors.white.withOpacity(0.8),
+                  ),
+                ],
               ),
             ),
 
             const SizedBox(height: 4),
+
+            // 个人简介 - 可点击编辑
+            if (_currentUser?.bio != null && _currentUser!.bio!.isNotEmpty)
+              GestureDetector(
+                onTap: _editBio,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    _currentUser!.bio!,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 8),
 
             // 用户等级
             Container(
@@ -97,53 +321,59 @@ class ProfileDrawer extends StatelessWidget {
           const SizedBox(height: 12),
 
           // 积分卡片
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+          GestureDetector(
+            onTap: () async {
+              await _loadUserData();
+              if (mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('数据已刷新')));
+              }
+            },
+            child: Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.stars,
+                        color: Colors.orange,
+                        size: 24,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.stars,
-                      color: Colors.orange,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '当前积分',
-                          style: TextStyle(fontSize: 14, color: Colors.grey),
-                        ),
-                        const Text(
-                          '1,280',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '当前积分',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
                           ),
-                        ),
-                      ],
+                          Text(
+                            '$_totalScore',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    color: Colors.grey,
-                    size: 16,
-                  ),
-                ],
+                    const Icon(Icons.refresh, color: Colors.grey, size: 16),
+                  ],
+                ),
               ),
             ),
           ),
@@ -151,53 +381,59 @@ class ProfileDrawer extends StatelessWidget {
           const SizedBox(height: 8),
 
           // 成就卡片
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+          GestureDetector(
+            onTap: () async {
+              await _loadUserData();
+              if (mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('数据已刷新')));
+              }
+            },
+            child: Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.emoji_events,
+                        color: Colors.purple,
+                        size: 24,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.emoji_events,
-                      color: Colors.purple,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '获得成就',
-                          style: TextStyle(fontSize: 14, color: Colors.grey),
-                        ),
-                        const Text(
-                          '8 个',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.purple,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '获得成就',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
                           ),
-                        ),
-                      ],
+                          Text(
+                            '$_achievementsCount 个',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    color: Colors.grey,
-                    size: 16,
-                  ),
-                ],
+                    const Icon(Icons.refresh, color: Colors.grey, size: 16),
+                  ],
+                ),
               ),
             ),
           ),

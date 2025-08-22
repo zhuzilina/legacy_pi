@@ -8,3 +8,4 @@ echo 请确保您已经连接了Android设备或启动了模拟器
 echo.
 flutter run
 pause
+

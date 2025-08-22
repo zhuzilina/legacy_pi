@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:math';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../database/database_helper.dart';
+import '../models/user.dart';
+import '../models/user_score.dart';
 
 class JourneyPage extends StatelessWidget {
   const JourneyPage({super.key});
@@ -31,16 +34,74 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
   // 存储键名
   static const String _storageKey = 'journey_button_positions';
 
+  // 气泡状态管理
+  String? _activeBubbleButtonId; // 当前显示气泡的按钮ID
+
+  // 数据库和用户管理
+  final DatabaseHelper _databaseHelper = DatabaseHelper();
+  User? _currentUser;
+  int _totalScore = 120; // 默认积分值，将从数据库读取
+
   @override
   void initState() {
     super.initState();
-    _loadOrGenerateButtonPositions();
+    _initializeUserAndDatabase();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // 初始化用户和数据库
+  Future<void> _initializeUserAndDatabase() async {
+    try {
+      // 初始化数据库
+      await _databaseHelper.database;
+
+      // 尝试获取默认用户，如果不存在则创建
+      _currentUser = await _databaseHelper.getUserByUsername('default_user');
+
+      if (_currentUser == null) {
+        // 创建默认用户
+        final now = DateTime.now();
+        final newUser = User(
+          username: 'default_user',
+          email: 'default@example.com',
+          createdAt: now,
+          updatedAt: now,
+        );
+
+        final userId = await _databaseHelper.insertUser(newUser);
+        _currentUser = newUser.copyWith(id: userId);
+
+        // 为新用户添加初始积分
+        await _databaseHelper.insertUserScore(
+          UserScore(
+            userId: userId,
+            score: 120,
+            description: '初始积分',
+            earnedAt: now,
+          ),
+        );
+      }
+
+      // 加载用户总积分
+      if (_currentUser != null) {
+        _totalScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+      }
+
+      // 加载按钮位置
+      _loadOrGenerateButtonPositions();
+    } catch (e) {
+      print('初始化数据库失败: $e');
+      // 如果数据库初始化失败，使用默认值
+      _totalScore = 120;
+      _loadOrGenerateButtonPositions();
+    }
   }
 
   // 加载或生成按钮位置
@@ -135,10 +196,10 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     if (!_scrollController.hasClients || _radioButtons.isEmpty) return;
 
     // 计算覆盖层结尾位置，使用与覆盖层结尾大按钮相同的算法
-    final totalWeight = 850;
+    final totalWeight = _totalScore; // 使用数据库中的积分值
     final weightPerButton = 100;
-    final coveredButtons = (totalWeight / weightPerButton).floor(); // 8个完整按钮
-    final remainingWeight = totalWeight % weightPerButton; // 50权重
+    final coveredButtons = (totalWeight / weightPerButton).floor();
+    final remainingWeight = totalWeight % weightPerButton;
 
     Offset endPosition;
     if (remainingWeight > 0 && coveredButtons < _radioButtons.length - 1) {
@@ -317,58 +378,198 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     }
   }
 
+  // 增加用户积分
+  Future<void> _addUserScore(int points, String description) async {
+    if (_currentUser == null) return;
+
+    try {
+      // 添加积分记录
+      await _databaseHelper.insertUserScore(
+        UserScore(
+          userId: _currentUser!.id!,
+          score: points,
+          description: description,
+          earnedAt: DateTime.now(),
+        ),
+      );
+
+      // 更新总积分
+      _totalScore = await _databaseHelper.getTotalUserScore(_currentUser!.id!);
+
+      // 检查并解锁成就
+      await _checkAndUnlockAchievements();
+
+      // 刷新UI以反映新的覆盖层长度
+      setState(() {});
+
+      print('积分已增加: +$points ($description), 总积分: $_totalScore');
+    } catch (e) {
+      print('增加积分失败: $e');
+    }
+  }
+
+  // 检查并解锁成就
+  Future<void> _checkAndUnlockAchievements() async {
+    if (_currentUser == null) return;
+
+    try {
+      // 积分相关成就
+      if (_totalScore >= 100 && _totalScore < 200) {
+        await _databaseHelper.unlockAchievement(
+          _currentUser!.id!,
+          '积分新手',
+          '获得100积分',
+          '🎯',
+        );
+      } else if (_totalScore >= 500 && _totalScore < 1000) {
+        await _databaseHelper.unlockAchievement(
+          _currentUser!.id!,
+          '积分达人',
+          '获得500积分',
+          '🏆',
+        );
+      } else if (_totalScore >= 1000) {
+        await _databaseHelper.unlockAchievement(
+          _currentUser!.id!,
+          '积分大师',
+          '获得1000积分',
+          '👑',
+        );
+      }
+
+      // 按钮点击相关成就
+      final activeButtonsCount = _radioButtons.where((btn) {
+        final buttonIndex = _radioButtons.indexOf(btn);
+        final totalWeight = _totalScore;
+        final weightPerButton = 100;
+        final coveredButtons = (totalWeight / weightPerButton).floor();
+        final remainingWeight = totalWeight % weightPerButton;
+        return buttonIndex < coveredButtons ||
+            (buttonIndex == coveredButtons && remainingWeight > 0);
+      }).length;
+
+      if (activeButtonsCount >= 5) {
+        await _databaseHelper.unlockAchievement(
+          _currentUser!.id!,
+          '探索者',
+          '激活5个按钮',
+          '🔍',
+        );
+      }
+
+      if (activeButtonsCount >= 10) {
+        await _databaseHelper.unlockAchievement(
+          _currentUser!.id!,
+          '冒险家',
+          '激活10个按钮',
+          '🗺️',
+        );
+      }
+    } catch (e) {
+      print('检查成就失败: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            controller: _scrollController,
-            child: Container(
-              width: MediaQuery.of(context).size.width,
-              height:
-                  MediaQuery.of(context).size.height +
-                  11500, // 100个按钮 * 115像素间距
-              child: Stack(
-                children: [
-                  // 贝塞尔曲线连接线
-                  CustomPaint(
-                    size: Size(
-                      MediaQuery.of(context).size.width,
-                      MediaQuery.of(context).size.height + 11500,
+      body: GestureDetector(
+        onTap: () {
+          // 点击其他位置收起气泡
+          if (_activeBubbleButtonId != null) {
+            setState(() {
+              _activeBubbleButtonId = null;
+            });
+          }
+        },
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              controller: _scrollController,
+              child: Container(
+                width: MediaQuery.of(context).size.width,
+                height:
+                    MediaQuery.of(context).size.height +
+                    11500, // 100个按钮 * 115像素间距
+                child: Stack(
+                  children: [
+                    // 贝塞尔曲线连接线
+                    CustomPaint(
+                      size: Size(
+                        MediaQuery.of(context).size.width,
+                        MediaQuery.of(context).size.height + 11500,
+                      ),
+                      painter: BezierCurvePainter(_radioButtons),
                     ),
-                    painter: BezierCurvePainter(_radioButtons),
-                  ),
-                  // 贝塞尔曲线覆盖层
-                  CustomPaint(
-                    size: Size(
-                      MediaQuery.of(context).size.width,
-                      MediaQuery.of(context).size.height + 11500,
+                    // 贝塞尔曲线覆盖层
+                    CustomPaint(
+                      size: Size(
+                        MediaQuery.of(context).size.width,
+                        MediaQuery.of(context).size.height + 11500,
+                      ),
+                      painter: BezierCurveOverlayPainter(
+                        _radioButtons,
+                        _totalScore,
+                      ),
                     ),
-                    painter: BezierCurveOverlayPainter(_radioButtons),
-                  ),
-                  // 随机分布的单选按钮
-                  ..._radioButtons.map(
-                    (radioData) => _buildRadioButton(radioData),
-                  ),
-                  // 覆盖层结尾处的大按钮
-                  _buildOverlayEndButton(),
-                ],
+                    // 随机分布的单选按钮
+                    ..._radioButtons.map(
+                      (radioData) => _buildRadioButton(radioData),
+                    ),
+                    // 覆盖层结尾处的大按钮
+                    _buildOverlayEndButton(),
+                    // 覆盖层结尾按钮的气泡
+                    _buildBubbleForEndButton(),
+                    // 激活按钮的气泡
+                    _buildActiveButtonBubble(),
+                  ],
+                ),
               ),
             ),
-          ),
-          // 重置按钮
-          Positioned(
-            top: 50,
-            right: 20,
-            child: FloatingActionButton(
-              onPressed: _resetButtonPositions,
-              backgroundColor: Colors.red[700],
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.refresh),
+            // 重置按钮
+            Positioned(
+              top: 50,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: _resetButtonPositions,
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.refresh),
+              ),
             ),
-          ),
-        ],
+            // 增加积分按钮
+            Positioned(
+              top: 120,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: () => _addUserScore(100, '手动增加'),
+                backgroundColor: Colors.green[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.add),
+              ),
+            ),
+            // 显示当前积分
+            Positioned(
+              top: 190,
+              right: 20,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue[700],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '积分: $_totalScore',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -380,10 +581,10 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     final buttonIndex = _radioButtons.indexOf(radioData);
 
     // 计算覆盖层是否经过此按钮
-    final totalWeight = 850;
+    final totalWeight = _totalScore; // 使用数据库中的积分值
     final weightPerButton = 100;
-    final coveredButtons = (totalWeight / weightPerButton).floor(); // 8个完整按钮
-    final remainingWeight = totalWeight % weightPerButton; // 50权重
+    final coveredButtons = (totalWeight / weightPerButton).floor();
+    final remainingWeight = totalWeight % weightPerButton;
     final isInOverlay =
         buttonIndex < coveredButtons ||
         (buttonIndex == coveredButtons && remainingWeight > 0);
@@ -395,11 +596,19 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
       left: radioData.position.dx - buttonSize / 2, // 居中定位
       top: radioData.position.dy - buttonSize / 2, // 居中定位
       child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedValue = radioData.value;
-          });
-        },
+        onTap: isActive
+            ? () {
+                setState(() {
+                  _selectedValue = radioData.value;
+                  // 切换气泡显示状态
+                  if (_activeBubbleButtonId == radioData.value) {
+                    _activeBubbleButtonId = null; // 如果已经显示，则隐藏
+                  } else {
+                    _activeBubbleButtonId = radioData.value; // 否则显示气泡
+                  }
+                });
+              }
+            : null, // 未激活时禁用点击事件
         child: Container(
           width: buttonSize,
           height: buttonSize,
@@ -432,12 +641,15 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
   Widget _buildOverlayEndButton() {
     if (_radioButtons.isEmpty) return Container();
 
+    // 添加调试信息
+    print('构建覆盖层结尾按钮，按钮数量: ${_radioButtons.length}');
+
     // 计算覆盖层结尾位置
-    final totalWeight = 850;
+    final totalWeight = _totalScore; // 使用数据库中的积分值
     final weightPerButton = 100;
-    final coveredButtons = (totalWeight / weightPerButton).floor(); // 8个完整按钮
-    final remainingWeight = totalWeight % weightPerButton; // 50权重
-    final remainingRatio = remainingWeight / weightPerButton; // 0.5比例
+    final coveredButtons = (totalWeight / weightPerButton).floor();
+    final remainingWeight = totalWeight % weightPerButton;
+    final remainingRatio = remainingWeight / weightPerButton;
 
     // 确定结尾按钮的位置，使用与覆盖层相同的贝塞尔曲线计算
     Offset endPosition;
@@ -609,6 +821,165 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
           Icons.star, // 星星图标表示重要节点
           size: bigButtonSize * 0.6,
           color: Colors.red,
+        ),
+      ),
+    );
+  }
+
+  // 构建激活按钮的气泡
+  Widget _buildActiveButtonBubble() {
+    if (_activeBubbleButtonId == null) return Container();
+
+    // 找到当前激活气泡的按钮
+    final activeButton = _radioButtons.firstWhere(
+      (btn) => btn.value == _activeBubbleButtonId,
+      orElse: () => _radioButtons.first,
+    );
+
+    final buttonSize = 30.0;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bubbleWidth = 120.0; // 调整宽度适应5字符换行
+    final margin = 8.0;
+
+    // 计算气泡位置
+    final buttonLeft = activeButton.position.dx - buttonSize / 2;
+    final buttonRight = activeButton.position.dx + buttonSize / 2;
+    final rightSpace = screenWidth - buttonRight - margin;
+
+    double bubbleLeft;
+    if (rightSpace >= bubbleWidth) {
+      // 显示在右侧
+      bubbleLeft = buttonRight + margin;
+    } else {
+      // 显示在左侧
+      bubbleLeft = buttonLeft - bubbleWidth - margin;
+    }
+
+    // 确保不超出边界
+    bubbleLeft = bubbleLeft.clamp(5.0, screenWidth - bubbleWidth - 5.0);
+
+    // 将文本按每行5个字符进行换行
+    String formatTextWithLineBreaks(String text) {
+      final buffer = StringBuffer();
+      for (int i = 0; i < text.length; i += 5) {
+        if (i > 0) buffer.write('\n');
+        final end = (i + 5 < text.length) ? i + 5 : text.length;
+        buffer.write(text.substring(i, end));
+      }
+      return buffer.toString();
+    }
+
+    return Positioned(
+      left: bubbleLeft,
+      top: activeButton.position.dy - 40, // 调整位置以适应多行文本
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white, // 白色背景
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Text(
+          formatTextWithLineBreaks("现在的这里已经发生了很大的变化..."),
+          style: TextStyle(
+            color: Colors.grey[700], // 灰色文字
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            height: 1.3, // 行高
+          ),
+          textAlign: TextAlign.left,
+        ),
+      ),
+    );
+  }
+
+  // 构建覆盖层结尾按钮的气泡
+  Widget _buildBubbleForEndButton() {
+    if (_radioButtons.isEmpty) return Container();
+
+    // 计算覆盖层结尾位置 - 复用大按钮的位置计算逻辑
+    final totalWeight = _totalScore; // 使用数据库中的积分值
+    final weightPerButton = 100;
+    final coveredButtons = (totalWeight / weightPerButton).floor();
+    final remainingWeight = totalWeight % weightPerButton;
+    final remainingRatio = remainingWeight / weightPerButton;
+
+    Offset endPosition;
+    if (remainingWeight > 0 && coveredButtons < _radioButtons.length - 1) {
+      final previousButton = _radioButtons[coveredButtons];
+      final currentButton = _radioButtons[coveredButtons + 1];
+      endPosition = _getBezierPointForEndButton(
+        previousButton.position,
+        previousButton.position, // 简化控制点
+        currentButton.position, // 简化控制点
+        currentButton.position,
+        remainingRatio,
+      );
+    } else {
+      final endButtonIndex = (coveredButtons - 1).clamp(
+        0,
+        _radioButtons.length - 1,
+      );
+      endPosition = _radioButtons[endButtonIndex].position;
+    }
+
+    final bigButtonSize = 40.0;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bubbleWidth = 120.0;
+    final margin = 8.0; // 减少边距，让气泡更靠近按钮
+
+    // 计算气泡位置
+    final buttonLeft = endPosition.dx - bigButtonSize / 2;
+    final buttonRight = endPosition.dx + bigButtonSize / 2;
+    final rightSpace = screenWidth - buttonRight - margin;
+
+    double bubbleLeft;
+    if (rightSpace >= bubbleWidth) {
+      // 显示在右侧
+      bubbleLeft = buttonRight + margin;
+    } else {
+      // 显示在左侧，更靠近按钮
+      bubbleLeft = buttonLeft - bubbleWidth - margin;
+    }
+
+    // 确保不超出边界，但允许更靠近边缘
+    bubbleLeft = bubbleLeft.clamp(5.0, screenWidth - bubbleWidth - 5.0);
+
+    print(
+      '气泡位置: 按钮(${endPosition.dx}, ${endPosition.dy}), 气泡($bubbleLeft, ${endPosition.dy - 20})',
+    );
+
+    return Positioned(
+      left: bubbleLeft,
+      top: endPosition.dy - 20, // 按钮中心偏上
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white, // 白色背景
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Text(
+          "你到这里了",
+          style: TextStyle(
+            color: Colors.grey[700], // 灰色文字
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ),
     );
@@ -876,8 +1247,9 @@ class BezierCurvePainter extends CustomPainter {
 
 class BezierCurveOverlayPainter extends CustomPainter {
   final List<RadioButtonData> radioButtons;
+  final int totalScore; // 添加积分参数
 
-  BezierCurveOverlayPainter(this.radioButtons);
+  BezierCurveOverlayPainter(this.radioButtons, this.totalScore);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -894,7 +1266,7 @@ class BezierCurveOverlayPainter extends CustomPainter {
     final path = Path();
 
     // 权重控制参数
-    final totalWeight = 850; // 总权重
+    final totalWeight = totalScore; // 使用传入的积分值
     final weightPerButton = 100; // 每个按钮之间的权重
     int remainingWeight = totalWeight; // 剩余权重
 
