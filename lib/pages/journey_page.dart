@@ -1,29 +1,53 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import '../models/user.dart';
 import '../models/user_score.dart';
+import '../services/global_state.dart';
 
-class JourneyPage extends StatelessWidget {
-  const JourneyPage({super.key});
+class JourneyPage extends StatefulWidget {
+  final VoidCallback? onScoreUpdated;
+
+  const JourneyPage({super.key, this.onScoreUpdated});
+
+  @override
+  State<JourneyPage> createState() => _JourneyPageState();
+}
+
+class _JourneyPageState extends State<JourneyPage> {
+  final GlobalKey<_ZoomableBackgroundWidgetState> _journeyKey =
+      GlobalKey<_ZoomableBackgroundWidgetState>();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: ZoomableBackgroundWidget());
+    return Scaffold(
+      body: ZoomableBackgroundWidget(
+        key: _journeyKey,
+        onScoreUpdated: () {
+          // 当收到积分更新通知时，调用journey页面的检查更新方法
+          _journeyKey.currentState?.checkAndUpdateGlobalState();
+        },
+      ),
+    );
   }
 }
 
 class ZoomableBackgroundWidget extends StatefulWidget {
-  const ZoomableBackgroundWidget({super.key});
+  final VoidCallback? onScoreUpdated;
+
+  const ZoomableBackgroundWidget({super.key, this.onScoreUpdated});
 
   @override
   State<ZoomableBackgroundWidget> createState() =>
       _ZoomableBackgroundWidgetState();
 }
 
-class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
+class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // 单选按钮数据
   final List<RadioButtonData> _radioButtons = [];
   String? _selectedValue;
@@ -36,71 +60,634 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
 
   // 气泡状态管理
   String? _activeBubbleButtonId; // 当前显示气泡的按钮ID
+  bool _showEndButtonBubble = true; // 控制大按钮气泡的显示
 
   // 数据库和用户管理
   final DatabaseHelper _databaseHelper = DatabaseHelper();
   User? _currentUser;
-  int _totalScore = 120; // 默认积分值，将从数据库读取
+  int _totalScore = 0; // 使用全局状态管理的积分值
+  bool _isInitialized = false; // 标记是否已初始化
+
+  // 图片尺寸信息
+  double _img1Height = 0;
+  double _img2Height = 0;
+
+  // 用户头像
+  String? _userAvatarPath;
+
+  // 动画控制器
+  late AnimationController _buttonAnimationController;
+  late AnimationController _overlayAnimationController;
+  late Animation<double> _buttonScaleAnimation;
+  late Animation<double> _buttonRotationAnimation;
+  late Animation<Color?> _buttonColorAnimation;
+  late Animation<Offset> _buttonPositionAnimation;
+  late Animation<double> _overlayProgressAnimation;
+
+  // 动画状态
+  Offset _previousButtonPosition = Offset.zero;
+  Offset _currentButtonPosition = Offset.zero;
+  int _previousTotalScore = 0;
+
+  // 粒子动画状态
+  List<Particle> _particles = [];
+  late AnimationController _particleAnimationController;
+  Set<int> _activatedButtonIndices = {}; // 记录新激活的按钮索引
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeAnimations();
     _initializeUserAndDatabase();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // 当应用重新获得焦点时，检查并更新全局状态
+      _checkAndUpdateGlobalState();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadImageDimensions();
+  }
+
+  // 初始化动画
+  void _initializeAnimations() {
+    _buttonAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500), // 增加动画时长
+      vsync: this,
+    );
+
+    _overlayAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500), // 与按钮动画同步
+      vsync: this,
+    );
+
+    _particleAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 2000), // 粒子动画时长
+      vsync: this,
+    );
+
+    _buttonScaleAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(
+        parent: _buttonAnimationController,
+        curve: Curves.elasticOut,
+      ),
+    );
+
+    _buttonRotationAnimation = Tween<double>(begin: 0.0, end: 0.05).animate(
+      CurvedAnimation(
+        parent: _buttonAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _buttonColorAnimation =
+        ColorTween(begin: Color(0xFFFFD700), end: Colors.orange).animate(
+          CurvedAnimation(
+            parent: _buttonAnimationController,
+            curve: Curves.easeInOut,
+          ),
+        );
+
+    // 平移动画将在触发时动态创建
+    _buttonPositionAnimation =
+        Tween<Offset>(begin: Offset.zero, end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _buttonAnimationController,
+            curve: Curves.easeInOut,
+          ),
+        );
+
+    // 覆盖层进度动画将在触发时动态创建
+    _overlayProgressAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _overlayAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+  }
+
+  // 加载图片尺寸
+  Future<void> _loadImageDimensions() async {
+    // 使用更合适的高度比例
+    if (_img1Height == 0 && _img2Height == 0) {
+      setState(() {
+        // 给图片足够的高度来完整显示
+        _img1Height = MediaQuery.of(context).size.width * 0.8;
+        _img2Height = MediaQuery.of(context).size.width * 1.2;
+      });
+    }
+  }
+
+  // 加载用户头像
+  Future<void> _loadUserAvatar() async {
+    try {
+      if (_currentUser != null && _currentUser!.avatarPath != null) {
+        setState(() {
+          _userAvatarPath = _currentUser!.avatarPath;
+        });
+        print('从数据库加载用户头像: $_userAvatarPath');
+      }
+    } catch (e) {
+      print('加载用户头像失败: $e');
+    }
+  }
+
+  // 设置用户头像
+  Future<void> setUserAvatar(String avatarPath) async {
+    try {
+      if (_currentUser != null) {
+        // 更新数据库中的用户头像
+        final updatedUser = _currentUser!.copyWith(
+          avatarPath: avatarPath,
+          updatedAt: DateTime.now(),
+        );
+        await _databaseHelper.updateUser(updatedUser);
+
+        // 更新当前用户对象
+        _currentUser = updatedUser;
+
+        setState(() {
+          _userAvatarPath = avatarPath;
+        });
+
+        print('用户头像已更新到数据库: $avatarPath');
+      }
+    } catch (e) {
+      print('设置用户头像失败: $e');
+    }
+  }
+
+  // 触发按钮动画
+  void _triggerButtonAnimation() {
+    print('触发按钮动画，当前积分: $_totalScore，之前积分: $_previousTotalScore');
+
+    // 如果是第一次动画，初始化当前位置
+    if (_currentButtonPosition == Offset.zero) {
+      _currentButtonPosition = _calculateEndButtonPosition();
+      _previousButtonPosition = _currentButtonPosition;
+      print('首次动画，初始化按钮位置');
+    } else {
+      // 保存当前位置作为起始位置
+      _previousButtonPosition = _currentButtonPosition;
+
+      // 计算新的目标位置（使用最终积分值）
+      _currentButtonPosition = _calculateEndButtonPositionForScore(_totalScore);
+      print('非首次动画，从 ${_previousButtonPosition} 移动到 ${_currentButtonPosition}');
+    }
+
+    // 创建平移动画
+    _buttonPositionAnimation =
+        Tween<Offset>(
+          begin: _previousButtonPosition,
+          end: _currentButtonPosition,
+        ).animate(
+          CurvedAnimation(
+            parent: _buttonAnimationController,
+            curve: Curves.easeInOut,
+          ),
+        );
+
+    // 重置并开始动画
+    print('重置动画控制器并开始动画');
+    _buttonAnimationController.reset();
+    _overlayAnimationController.reset();
+    _buttonAnimationController.forward();
+    _overlayAnimationController.forward();
+
+    // 监听动画完成事件，自动滚动到新位置
+    _overlayAnimationController.removeStatusListener(_onAnimationCompleted);
+    _overlayAnimationController.addStatusListener(_onAnimationCompleted);
+  }
+
+  // 动画完成回调
+  void _onAnimationCompleted(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      // 动画完成后，延迟滚动到新位置
+      Future.delayed(Duration(milliseconds: 300), () {
+        _scrollToOverlayEnd();
+      });
+    }
+  }
+
+  // 计算大按钮的目标位置 - 使用与覆盖层完全相同的算法
+  Offset _calculateEndButtonPosition() {
+    if (_radioButtons.isEmpty) return Offset.zero;
+
+    // 使用动画中的积分值计算位置
+    final animatedScore = _overlayAnimationController.isAnimating
+        ? _previousTotalScore +
+              (_totalScore - _previousTotalScore) *
+                  _overlayProgressAnimation.value
+        : _totalScore;
+
+    final totalWeight = animatedScore.round();
+    final weightPerButton = 100;
+    int remainingWeight = totalWeight;
+
+    // 从第一个按钮开始
+    final firstButton = _radioButtons[0];
+    Offset endPosition = firstButton.position;
+
+    // 遍历所有按钮，根据权重决定覆盖长度
+    for (int i = 1; i < _radioButtons.length; i++) {
+      remainingWeight -= weightPerButton;
+
+      // 检查积分是否为100的整数倍
+      if (totalWeight % 100 == 0) {
+        // 如果是100的整数倍，直接定位到对应的按钮上
+        final buttonIndex = (totalWeight / 100).floor();
+        if (buttonIndex < _radioButtons.length) {
+          endPosition = _radioButtons[buttonIndex].position;
+        } else {
+          endPosition = _radioButtons.last.position;
+        }
+        break;
+      }
+
+      // 如果不是100的整数倍，使用覆盖层尾部定位
+      if (remainingWeight < 0) {
+        // 计算剩余权重的比例
+        final remainingRatio =
+            (remainingWeight + weightPerButton) / weightPerButton;
+
+        // 使用与覆盖层完全相同的算法计算位置
+        final currentButton = _radioButtons[i];
+        final previousButton = _radioButtons[i - 1];
+
+        // 计算两点之间的距离和方向
+        final dx = currentButton.position.dx - previousButton.position.dx;
+        final dy = currentButton.position.dy - previousButton.position.dy;
+        final distance = sqrt(dx * dx + dy * dy);
+
+        // 使用与覆盖层相同的贝塞尔曲线算法
+        double curvature = 0.0;
+        if (i > 1 && i < _radioButtons.length - 1) {
+          final prevPrevButton = _radioButtons[i - 2];
+          final nextButton = _radioButtons[i + 1];
+
+          final prevDirection = Offset(
+            previousButton.position.dx - prevPrevButton.position.dx,
+            previousButton.position.dy - prevPrevButton.position.dy,
+          );
+          final nextDirection = Offset(
+            nextButton.position.dx - currentButton.position.dx,
+            nextButton.position.dy - currentButton.position.dy,
+          );
+
+          final prevLength = sqrt(
+            prevDirection.dx * prevDirection.dx +
+                prevDirection.dy * prevDirection.dy,
+          );
+          final nextLength = sqrt(
+            nextDirection.dx * nextDirection.dx +
+                nextDirection.dy * nextDirection.dy,
+          );
+
+          if (prevLength > 0 && nextLength > 0) {
+            final dotProduct =
+                (prevDirection.dx * nextDirection.dx +
+                    prevDirection.dy * nextDirection.dy) /
+                (prevLength * nextLength);
+            final clampedDot = dotProduct.clamp(-1.0, 1.0);
+            curvature = acos(clampedDot);
+          }
+        }
+
+        // 基于曲度动态调整控制点距离
+        final baseFactor = 0.4;
+        final curvatureFactor = curvature / pi;
+        final adaptiveDistance =
+            distance * (baseFactor + curvatureFactor * 0.3);
+
+        // 计算切线方向
+        Offset previousTangent = Offset(dx / distance, dy / distance);
+        if (i > 1) {
+          final prevPrevButton = _radioButtons[i - 2];
+          final prevDx =
+              previousButton.position.dx - prevPrevButton.position.dx;
+          final prevDy =
+              previousButton.position.dy - prevPrevButton.position.dy;
+          final prevDistance = sqrt(prevDx * prevDx + prevDy * prevDy);
+          if (prevDistance > 0) {
+            final prevTangent = Offset(
+              prevDx / prevDistance,
+              prevDy / prevDistance,
+            );
+            final currentDirection = Offset(dx / distance, dy / distance);
+
+            final weight = 0.7;
+            previousTangent = Offset(
+              currentDirection.dx * weight + prevTangent.dx * (1 - weight),
+              currentDirection.dy * weight + prevTangent.dy * (1 - weight),
+            );
+
+            final tangentLength = sqrt(
+              previousTangent.dx * previousTangent.dx +
+                  previousTangent.dy * previousTangent.dy,
+            );
+            if (tangentLength > 0) {
+              previousTangent = Offset(
+                previousTangent.dx / tangentLength,
+                previousTangent.dy / tangentLength,
+              );
+            }
+          }
+        }
+
+        Offset currentTangent = Offset(dx / distance, dy / distance);
+        if (i < _radioButtons.length - 1) {
+          final nextButton = _radioButtons[i + 1];
+          final nextDx = nextButton.position.dx - currentButton.position.dx;
+          final nextDy = nextButton.position.dy - currentButton.position.dy;
+          final nextDistance = sqrt(nextDx * nextDx + nextDy * nextDy);
+          if (nextDistance > 0) {
+            final nextTangent = Offset(
+              nextDx / nextDistance,
+              nextDy / nextDistance,
+            );
+
+            final weight = 0.7;
+            currentTangent = Offset(
+              currentTangent.dx * weight + nextTangent.dx * (1 - weight),
+              currentTangent.dy * weight + nextTangent.dy * (1 - weight),
+            );
+
+            final tangentLength = sqrt(
+              currentTangent.dx * currentTangent.dx +
+                  currentTangent.dy * currentTangent.dy,
+            );
+            if (tangentLength > 0) {
+              currentTangent = Offset(
+                currentTangent.dx / tangentLength,
+                currentTangent.dy / tangentLength,
+              );
+            }
+          }
+        }
+
+        // 计算贝塞尔曲线控制点
+        final fullControlPoint1 = Offset(
+          previousButton.position.dx + previousTangent.dx * adaptiveDistance,
+          previousButton.position.dy + previousTangent.dy * adaptiveDistance,
+        );
+        final fullControlPoint2 = Offset(
+          currentButton.position.dx - currentTangent.dx * adaptiveDistance,
+          currentButton.position.dy - currentTangent.dy * adaptiveDistance,
+        );
+
+        // 使用与覆盖层完全相同的分段计算方式
+        final segments = 100; // 100个等分
+        final filledSegments = (remainingRatio * segments).floor(); // 需要填充的段数
+
+        // 计算最后一个段的结束位置
+        final t1 = filledSegments / segments.toDouble();
+        final t2 = t1 + (remainingRatio * segments - filledSegments) / segments;
+
+        // 使用与覆盖层完全相同的贝塞尔曲线计算方法
+        endPosition = _getBezierPointForEndButton(
+          previousButton.position,
+          fullControlPoint1,
+          fullControlPoint2,
+          currentButton.position,
+          t2,
+        );
+        break;
+      }
+      endPosition = _radioButtons[i].position;
+    }
+
+    return endPosition;
+  }
+
+  // 根据指定积分值计算大按钮位置
+  Offset _calculateEndButtonPositionForScore(int score) {
+    if (_radioButtons.isEmpty) return Offset.zero;
+
+    final totalWeight = score;
+    final weightPerButton = 100;
+    int remainingWeight = totalWeight;
+
+    // 检查积分是否为100的整数倍
+    if (totalWeight % 100 == 0) {
+      // 如果是100的整数倍，直接定位到对应的按钮上
+      final buttonIndex = (totalWeight / 100).floor();
+      if (buttonIndex < _radioButtons.length) {
+        return _radioButtons[buttonIndex].position;
+      } else {
+        return _radioButtons.last.position;
+      }
+    }
+
+    // 从第一个按钮开始
+    final firstButton = _radioButtons[0];
+    Offset endPosition = firstButton.position;
+
+    // 遍历所有按钮，根据权重决定覆盖长度
+    for (int i = 1; i < _radioButtons.length; i++) {
+      remainingWeight -= weightPerButton;
+
+      // 如果不是100的整数倍，使用覆盖层尾部定位
+      if (remainingWeight < 0) {
+        // 计算剩余权重的比例
+        final remainingRatio =
+            (remainingWeight + weightPerButton) / weightPerButton;
+
+        // 使用贝塞尔曲线计算中间位置
+        final currentButton = _radioButtons[i];
+        final previousButton = _radioButtons[i - 1];
+
+        // 计算两点之间的距离和方向
+        final dx = currentButton.position.dx - previousButton.position.dx;
+        final dy = currentButton.position.dy - previousButton.position.dy;
+        final distance = sqrt(dx * dx + dy * dy);
+
+        // 使用与覆盖层相同的贝塞尔曲线算法
+        double curvature = 0.0;
+        if (i > 1 && i < _radioButtons.length - 1) {
+          final prevPrevButton = _radioButtons[i - 2];
+          final nextButton = _radioButtons[i + 1];
+
+          final prevDirection = Offset(
+            previousButton.position.dx - prevPrevButton.position.dx,
+            previousButton.position.dy - prevPrevButton.position.dy,
+          );
+          final nextDirection = Offset(
+            nextButton.position.dx - currentButton.position.dx,
+            nextButton.position.dy - currentButton.position.dy,
+          );
+
+          final prevLength = sqrt(
+            prevDirection.dx * prevDirection.dx +
+                prevDirection.dy * prevDirection.dy,
+          );
+          final nextLength = sqrt(
+            nextDirection.dx * nextDirection.dx +
+                nextDirection.dy * nextDirection.dy,
+          );
+
+          if (prevLength > 0 && nextLength > 0) {
+            final dotProduct =
+                (prevDirection.dx * nextDirection.dx +
+                    prevDirection.dy * nextDirection.dy) /
+                (prevLength * nextLength);
+            final clampedDot = dotProduct.clamp(-1.0, 1.0);
+            curvature = acos(clampedDot);
+          }
+        }
+
+        // 基于曲度动态调整控制点距离
+        final baseFactor = 0.4;
+        final curvatureFactor = curvature / pi;
+        final adaptiveDistance =
+            distance * (baseFactor + curvatureFactor * 0.3);
+
+        // 计算切线方向
+        Offset previousTangent = Offset(dx / distance, dy / distance);
+        if (i > 1) {
+          final prevPrevButton = _radioButtons[i - 2];
+          final prevDx =
+              previousButton.position.dx - prevPrevButton.position.dx;
+          final prevDy =
+              previousButton.position.dy - prevPrevButton.position.dy;
+          final prevDistance = sqrt(prevDx * prevDx + prevDy * prevDy);
+          if (prevDistance > 0) {
+            final prevTangent = Offset(
+              prevDx / prevDistance,
+              prevDy / prevDistance,
+            );
+            final currentDirection = Offset(dx / distance, dy / distance);
+
+            final weight = 0.7;
+            previousTangent = Offset(
+              currentDirection.dx * weight + prevTangent.dx * (1 - weight),
+              currentDirection.dy * weight + prevTangent.dy * (1 - weight),
+            );
+
+            final tangentLength = sqrt(
+              previousTangent.dx * previousTangent.dx +
+                  previousTangent.dy * previousTangent.dy,
+            );
+            if (tangentLength > 0) {
+              previousTangent = Offset(
+                previousTangent.dx / tangentLength,
+                previousTangent.dy / tangentLength,
+              );
+            }
+          }
+        }
+
+        Offset currentTangent = Offset(dx / distance, dy / distance);
+        if (i < _radioButtons.length - 1) {
+          final nextButton = _radioButtons[i + 1];
+          final nextDx = nextButton.position.dx - currentButton.position.dx;
+          final nextDy = nextButton.position.dy - currentButton.position.dy;
+          final nextDistance = sqrt(nextDx * nextDx + nextDy * nextDy);
+          if (nextDistance > 0) {
+            final nextTangent = Offset(
+              nextDx / nextDistance,
+              nextDy / nextDistance,
+            );
+
+            final weight = 0.7;
+            currentTangent = Offset(
+              currentTangent.dx * weight + nextTangent.dx * (1 - weight),
+              currentTangent.dy * weight + nextTangent.dy * (1 - weight),
+            );
+
+            final tangentLength = sqrt(
+              currentTangent.dx * currentTangent.dx +
+                  currentTangent.dy * currentTangent.dy,
+            );
+            if (tangentLength > 0) {
+              currentTangent = Offset(
+                currentTangent.dx / tangentLength,
+                currentTangent.dy / tangentLength,
+              );
+            }
+          }
+        }
+
+        // 计算贝塞尔曲线控制点
+        final fullControlPoint1 = Offset(
+          previousButton.position.dx + previousTangent.dx * adaptiveDistance,
+          previousButton.position.dy + previousTangent.dy * adaptiveDistance,
+        );
+        final fullControlPoint2 = Offset(
+          currentButton.position.dx - currentTangent.dx * adaptiveDistance,
+          currentButton.position.dy - currentTangent.dy * adaptiveDistance,
+        );
+
+        // 使用与覆盖层完全相同的分段计算方式
+        final segments = 100; // 100个等分
+        final filledSegments = (remainingRatio * segments).floor(); // 需要填充的段数
+
+        // 计算最后一个段的结束位置
+        final t1 = filledSegments / segments.toDouble();
+        final t2 = t1 + (remainingRatio * segments - filledSegments) / segments;
+
+        // 使用与覆盖层完全相同的贝塞尔曲线计算方法
+        endPosition = _getBezierPointForEndButton(
+          previousButton.position,
+          fullControlPoint1,
+          fullControlPoint2,
+          currentButton.position,
+          t2,
+        );
+        break;
+      }
+      endPosition = _radioButtons[i].position;
+    }
+
+    return endPosition;
+  }
+
+  @override
   void dispose() {
+    // 移除积分监听器
+    GlobalState().removeScoreListener(_onScoreChanged);
+
+    // 移除应用生命周期观察者
+    WidgetsBinding.instance.removeObserver(this);
+
     _scrollController.dispose();
+    _buttonAnimationController.dispose();
+    _overlayAnimationController.dispose();
+    _particleAnimationController.dispose();
     super.dispose();
   }
 
   // 初始化用户和数据库
   Future<void> _initializeUserAndDatabase() async {
     try {
-      // 初始化数据库
-      await _databaseHelper.database;
+      // 从全局状态获取用户和积分
+      final globalState = GlobalState();
+      _currentUser = globalState.currentUser;
+      _totalScore = globalState.globalScore;
 
-      // 尝试获取默认用户，如果不存在则创建
-      _currentUser = await _databaseHelper.getUserByUsername('default_user');
+      // 添加积分监听器
+      globalState.addScoreListener(_onScoreChanged);
 
-      if (_currentUser == null) {
-        // 创建默认用户
-        final now = DateTime.now();
-        final newUser = User(
-          username: 'default_user',
-          email: 'default@example.com',
-          createdAt: now,
-          updatedAt: now,
-        );
-
-        final userId = await _databaseHelper.insertUser(newUser);
-        _currentUser = newUser.copyWith(id: userId);
-
-        // 为新用户添加初始积分
-        await _databaseHelper.insertUserScore(
-          UserScore(
-            userId: userId,
-            score: 120,
-            description: '初始积分',
-            earnedAt: now,
-          ),
-        );
-      }
-
-      // 加载用户总积分
-      if (_currentUser != null) {
-        _totalScore = await _databaseHelper.getTotalUserScore(
-          _currentUser!.id!,
-        );
-      }
+      // 加载用户头像
+      await _loadUserAvatar();
 
       // 加载按钮位置
       _loadOrGenerateButtonPositions();
+
+      _isInitialized = true;
     } catch (e) {
-      print('初始化数据库失败: $e');
-      // 如果数据库初始化失败，使用默认值
+      print('初始化失败: $e');
+      // 如果初始化失败，使用默认值
       _totalScore = 120;
       _loadOrGenerateButtonPositions();
+      _isInitialized = true;
     }
   }
 
@@ -122,9 +709,46 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
 
         setState(() {});
 
-        // 延迟滚动到覆盖层结尾处
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToOverlayEnd();
+        // 延迟初始化大按钮位置和滚动到覆盖层结尾处
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          // 初始化大按钮位置和动画状态
+          _currentButtonPosition = _calculateEndButtonPosition();
+          _previousButtonPosition = _currentButtonPosition;
+          _previousTotalScore = _totalScore;
+
+          // 初始化已激活按钮集合
+          _activatedButtonIndices.clear();
+          final totalWeight = _totalScore;
+          final weightPerButton = 100;
+          final coveredButtons = (totalWeight / weightPerButton).floor();
+          final remainingWeight = totalWeight % weightPerButton;
+
+          for (int i = 0; i < _radioButtons.length; i++) {
+            final isInOverlay =
+                i < coveredButtons ||
+                (i == coveredButtons && remainingWeight >= 0);
+            if (isInOverlay) {
+              _activatedButtonIndices.add(i);
+            }
+          }
+
+          // 强制重新构建以显示覆盖层
+          setState(() {});
+
+          // 滚动到覆盖层结尾处，等待滚动完成后再更新全局状态
+          print('开始滚动到覆盖层结尾处...');
+          await _scrollToOverlayEnd();
+          print('滚动完成，等待2秒后更新全局状态...');
+
+          // 等待2秒，让用户看到滚动完成的效果
+          print('等待1秒，让用户观察滚动完成的效果...');
+          await Future.delayed(Duration(seconds: 1));
+          print('等待完成，开始更新全局状态...');
+
+          // 页面初始化完成并滚动定位后，更新全局状态为数据库最新值
+          if (_isInitialized) {
+            _updateGlobalStateFromDatabase();
+          }
         });
       } else {
         // 如果没有保存的位置，则生成新的
@@ -171,9 +795,46 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
 
       setState(() {}); // 重新构建UI
 
-      // 延迟滚动到覆盖层结尾处，确保布局完成
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToOverlayEnd();
+      // 延迟初始化大按钮位置和滚动到覆盖层结尾处，确保布局完成
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // 初始化大按钮位置和动画状态
+        _currentButtonPosition = _calculateEndButtonPosition();
+        _previousButtonPosition = _currentButtonPosition;
+        _previousTotalScore = _totalScore;
+
+        // 初始化已激活按钮集合
+        _activatedButtonIndices.clear();
+        final totalWeight = _totalScore;
+        final weightPerButton = 100;
+        final coveredButtons = (totalWeight / weightPerButton).floor();
+        final remainingWeight = totalWeight % weightPerButton;
+
+        for (int i = 0; i < _radioButtons.length; i++) {
+          final isInOverlay =
+              i < coveredButtons ||
+              (i == coveredButtons && remainingWeight >= 0);
+          if (isInOverlay) {
+            _activatedButtonIndices.add(i);
+          }
+        }
+
+        // 强制重新构建以显示覆盖层
+        setState(() {});
+
+        // 滚动到覆盖层结尾处，等待滚动完成后再更新全局状态
+        print('开始滚动到覆盖层结尾处...');
+        await _scrollToOverlayEnd();
+        print('滚动完成，等待2秒后更新全局状态...');
+
+        // 等待2秒，让用户看到滚动完成的效果
+        print('等待2秒，让用户观察滚动完成的效果...');
+        await Future.delayed(Duration(seconds: 2));
+        print('等待完成，开始更新全局状态...');
+
+        // 页面初始化完成并滚动定位后，更新全局状态为数据库最新值
+        if (_isInitialized) {
+          _updateGlobalStateFromDatabase();
+        }
       });
     });
   }
@@ -192,7 +853,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
   }
 
   // 滚动到覆盖层结尾处
-  void _scrollToOverlayEnd() {
+  Future<void> _scrollToOverlayEnd() async {
     if (!_scrollController.hasClients || _radioButtons.isEmpty) return;
 
     // 计算覆盖层结尾位置，使用与覆盖层结尾大按钮相同的算法
@@ -337,10 +998,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
       );
     } else {
       // 完整覆盖到某个按钮，使用该按钮的位置
-      final endButtonIndex = (coveredButtons - 1).clamp(
-        0,
-        _radioButtons.length - 1,
-      );
+      final endButtonIndex = coveredButtons.clamp(0, _radioButtons.length - 1);
       endPosition = _radioButtons[endButtonIndex].position;
     }
 
@@ -352,8 +1010,8 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     final maxScrollExtent = _scrollController.position.maxScrollExtent;
     final clampedOffset = scrollOffset.clamp(0.0, maxScrollExtent);
 
-    // 执行滚动动画
-    _scrollController.animateTo(
+    // 执行滚动动画并等待完成
+    await _scrollController.animateTo(
       clampedOffset,
       duration: const Duration(milliseconds: 800),
       curve: Curves.easeInOut,
@@ -383,6 +1041,15 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     if (_currentUser == null) return;
 
     try {
+      // 计算新的总积分
+      final newTotalScore = _totalScore + points;
+
+      // 检查积分下限，不能为负数
+      if (newTotalScore < 0) {
+        print('积分不能为负数，当前积分: $_totalScore, 尝试减少: $points');
+        return;
+      }
+
       // 添加积分记录
       await _databaseHelper.insertUserScore(
         UserScore(
@@ -394,17 +1061,29 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
       );
 
       // 更新总积分
-      _totalScore = await _databaseHelper.getTotalUserScore(_currentUser!.id!);
+      final updatedTotalScore = await _databaseHelper.getTotalUserScore(
+        _currentUser!.id!,
+      );
 
       // 检查并解锁成就
       await _checkAndUnlockAchievements();
 
-      // 刷新UI以反映新的覆盖层长度
-      setState(() {});
+      // 触发按钮动画
+      _triggerButtonAnimation();
 
-      print('积分已增加: +$points ($description), 总积分: $_totalScore');
+      // 刷新UI以反映新的覆盖层长度
+      setState(() {
+        _totalScore = updatedTotalScore;
+      });
+
+      // 检测新激活的按钮并创建粒子效果
+      _detectNewlyActivatedButtons();
+
+      print(
+        '积分已${points >= 0 ? "增加" : "减少"}: ${points >= 0 ? "+" : ""}$points ($description), 总积分: $_totalScore',
+      );
     } catch (e) {
-      print('增加积分失败: $e');
+      print('${points >= 0 ? "增加" : "减少"}积分失败: $e');
     }
   }
 
@@ -481,6 +1160,12 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
               _activeBubbleButtonId = null;
             });
           }
+          // 重置大按钮气泡显示状态
+          if (!_showEndButtonBubble) {
+            setState(() {
+              _showEndButtonBubble = true;
+            });
+          }
         },
         child: Stack(
           children: [
@@ -493,6 +1178,53 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
                     11500, // 100个按钮 * 115像素间距
                 child: Stack(
                   children: [
+                    // 第二张背景图片层 - 放在第一张图片上方
+                    Positioned(
+                      top:
+                          MediaQuery.of(context).size.height +
+                          11500 -
+                          (_img2Height > 0
+                              ? _img2Height
+                              : MediaQuery.of(context).size.width * 1.2) -
+                          (_img1Height > 0
+                              ? _img1Height
+                              : MediaQuery.of(context).size.width *
+                                    0.8), // 第二张图片放在第一张图片正上方
+                      left: 0,
+                      child: SizedBox(
+                        width: MediaQuery.of(context).size.width,
+                        height: _img2Height > 0
+                            ? _img2Height
+                            : MediaQuery.of(context).size.width * 1.2,
+                        child: Image.asset(
+                          'img2.jpg',
+                          width: MediaQuery.of(context).size.width,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    // 第一张背景图片层 - 放在最底层，与按钮同步滚动
+                    Positioned(
+                      top:
+                          MediaQuery.of(context).size.height +
+                          11500 -
+                          (_img1Height > 0
+                              ? _img1Height
+                              : MediaQuery.of(context).size.width *
+                                    0.8), // 图片放在底部区域
+                      left: 0,
+                      child: SizedBox(
+                        width: MediaQuery.of(context).size.width,
+                        height: _img1Height > 0
+                            ? _img1Height
+                            : MediaQuery.of(context).size.width * 0.8,
+                        child: Image.asset(
+                          'img1.jpg',
+                          width: MediaQuery.of(context).size.width,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
                     // 贝塞尔曲线连接线
                     CustomPaint(
                       size: Size(
@@ -502,15 +1234,28 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
                       painter: BezierCurvePainter(_radioButtons),
                     ),
                     // 贝塞尔曲线覆盖层
-                    CustomPaint(
-                      size: Size(
-                        MediaQuery.of(context).size.width,
-                        MediaQuery.of(context).size.height + 11500,
-                      ),
-                      painter: BezierCurveOverlayPainter(
-                        _radioButtons,
-                        _totalScore,
-                      ),
+                    AnimatedBuilder(
+                      animation: _overlayAnimationController,
+                      builder: (context, child) {
+                        // 计算动画中的积分值
+                        final animatedScore =
+                            _overlayAnimationController.isAnimating
+                            ? _previousTotalScore +
+                                  (_totalScore - _previousTotalScore) *
+                                      _overlayProgressAnimation.value
+                            : _totalScore;
+
+                        return CustomPaint(
+                          size: Size(
+                            MediaQuery.of(context).size.width,
+                            MediaQuery.of(context).size.height + 11500,
+                          ),
+                          painter: BezierCurveOverlayPainter(
+                            _radioButtons,
+                            animatedScore.round(),
+                          ),
+                        );
+                      },
                     ),
                     // 随机分布的单选按钮
                     ..._radioButtons.map(
@@ -522,6 +1267,22 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
                     _buildBubbleForEndButton(),
                     // 激活按钮的气泡
                     _buildActiveButtonBubble(),
+                    // 粒子效果
+                    AnimatedBuilder(
+                      animation: _particleAnimationController,
+                      builder: (context, child) {
+                        // 更新粒子
+                        _updateParticles(0.016); // 约60fps
+
+                        return CustomPaint(
+                          size: Size(
+                            MediaQuery.of(context).size.width,
+                            MediaQuery.of(context).size.height + 11500,
+                          ),
+                          painter: ParticlePainter(_particles),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -542,15 +1303,26 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
               top: 120,
               right: 20,
               child: FloatingActionButton(
-                onPressed: () => _addUserScore(100, '手动增加'),
+                onPressed: () => _addUserScore(10, '手动增加'),
                 backgroundColor: Colors.green[700],
                 foregroundColor: Colors.white,
                 child: const Icon(Icons.add),
               ),
             ),
-            // 显示当前积分
+            // 减少积分按钮
             Positioned(
               top: 190,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: () => _addUserScore(-10, '手动减少'),
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.remove),
+              ),
+            ),
+            // 显示当前积分
+            Positioned(
+              top: 260,
               right: 20,
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -566,6 +1338,41 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+              ),
+            ),
+            // 测试设置头像按钮
+            Positioned(
+              top: 330,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: () => setUserAvatar(
+                  '/storage/emulated/0/DCIM/Camera/IMG_20241201_123456.jpg',
+                ),
+                backgroundColor: Colors.purple[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.person),
+              ),
+            ),
+            // 增加100积分按钮（测试动画）
+            Positioned(
+              top: 400,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: () => _addUserScore(100, '测试增加100'),
+                backgroundColor: Colors.teal[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.add_circle),
+              ),
+            ),
+            // 减少100积分按钮（测试动画）
+            Positioned(
+              top: 470,
+              right: 20,
+              child: FloatingActionButton(
+                onPressed: () => _addUserScore(-100, '测试减少100'),
+                backgroundColor: Colors.deepOrange[700],
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.remove_circle),
               ),
             ),
           ],
@@ -587,7 +1394,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     final remainingWeight = totalWeight % weightPerButton;
     final isInOverlay =
         buttonIndex < coveredButtons ||
-        (buttonIndex == coveredButtons && remainingWeight > 0);
+        (buttonIndex == coveredButtons && remainingWeight >= 0);
 
     // 判断按钮是否激活：用户手动选择或覆盖层经过
     final isActive = _selectedValue == radioData.value || isInOverlay;
@@ -787,42 +1594,80 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
       );
     } else {
       // 完整覆盖到某个按钮，使用该按钮的位置
-      final endButtonIndex = (coveredButtons - 1).clamp(
-        0,
-        _radioButtons.length - 1,
-      );
+      final endButtonIndex = coveredButtons.clamp(0, _radioButtons.length - 1);
       endPosition = _radioButtons[endButtonIndex].position;
     }
 
     final bigButtonSize = 40.0; // 大按钮尺寸40像素
 
-    return Positioned(
-      left: endPosition.dx - bigButtonSize / 2, // 居中定位
-      top: endPosition.dy - bigButtonSize / 2, // 居中定位
-      child: Container(
-        width: bigButtonSize,
-        height: bigButtonSize,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Color(0xFFFFD700), // 金色填充
-          border: Border.all(
-            color: Colors.red, // 红色边框
-            width: 3.0, // 3像素边框
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 4.0,
-              offset: const Offset(0, 2),
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        _buttonAnimationController,
+        _overlayAnimationController,
+      ]),
+      builder: (context, child) {
+        // 始终使用与覆盖层相同的积分值计算位置，确保完全同步
+        final currentPosition = _calculateEndButtonPosition();
+
+        return Positioned(
+          left: currentPosition.dx - bigButtonSize / 2,
+          top: currentPosition.dy - bigButtonSize / 2,
+          child: GestureDetector(
+            onTap: () {
+              // 检查大按钮是否与小按钮重叠
+              final overlappingButton = _findOverlappingButton(endPosition);
+              if (overlappingButton != null) {
+                // 如果重叠，隐藏大按钮气泡，显示小按钮气泡
+                setState(() {
+                  _showEndButtonBubble = false;
+                  _activeBubbleButtonId = overlappingButton.value;
+                });
+              } else {
+                // 如果没有重叠，切换大按钮气泡显示状态
+                setState(() {
+                  _showEndButtonBubble = !_showEndButtonBubble;
+                  _activeBubbleButtonId = null;
+                });
+              }
+            },
+            child: Container(
+              width: bigButtonSize,
+              height: bigButtonSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _userAvatarPath != null
+                    ? Colors.transparent
+                    : _buttonColorAnimation.value, // 使用动画颜色
+                border: Border.all(
+                  color: Colors.red, // 红色边框
+                  width: 3.0, // 3像素边框
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 4.0,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: _userAvatarPath != null
+                  ? ClipOval(
+                      child: Image.file(
+                        File(_userAvatarPath!),
+                        width: bigButtonSize,
+                        height: bigButtonSize,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : Icon(
+                      Icons.star, // 星星图标表示重要节点
+                      size: bigButtonSize * 0.6,
+                      color: Colors.red,
+                    ),
             ),
-          ],
-        ),
-        child: Icon(
-          Icons.star, // 星星图标表示重要节点
-          size: bigButtonSize * 0.6,
-          color: Colors.red,
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -902,7 +1747,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
 
   // 构建覆盖层结尾按钮的气泡
   Widget _buildBubbleForEndButton() {
-    if (_radioButtons.isEmpty) return Container();
+    if (_radioButtons.isEmpty || !_showEndButtonBubble) return Container();
 
     // 计算覆盖层结尾位置 - 复用大按钮的位置计算逻辑
     final totalWeight = _totalScore; // 使用数据库中的积分值
@@ -923,10 +1768,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
         remainingRatio,
       );
     } else {
-      final endButtonIndex = (coveredButtons - 1).clamp(
-        0,
-        _radioButtons.length - 1,
-      );
+      final endButtonIndex = coveredButtons.clamp(0, _radioButtons.length - 1);
       endPosition = _radioButtons[endButtonIndex].position;
     }
 
@@ -985,6 +1827,26 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
     );
   }
 
+  // 查找与大按钮重叠的小按钮
+  RadioButtonData? _findOverlappingButton(Offset endPosition) {
+    final bigButtonSize = 40.0;
+    final smallButtonSize = 30.0;
+
+    for (final button in _radioButtons) {
+      // 计算两个按钮中心点之间的距离
+      final distance = sqrt(
+        pow(endPosition.dx - button.position.dx, 2) +
+            pow(endPosition.dy - button.position.dy, 2),
+      );
+
+      // 如果距离小于两个按钮半径之和，则认为重叠
+      if (distance < (bigButtonSize + smallButtonSize) / 2) {
+        return button;
+      }
+    }
+    return null;
+  }
+
   // 计算大按钮位置的贝塞尔曲线点
   Offset _getBezierPointForEndButton(
     Offset p0,
@@ -1013,6 +1875,274 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget> {
         tCubed * p3.dy;
 
     return Offset(x, y);
+  }
+
+  // 创建粒子效果
+  void _createParticleEffect(Offset position) {
+    print('创建粒子效果，位置: $position');
+    final random = Random();
+    final particleCount = 120; // 大幅增加粒子数量到120个
+
+    // 定义彩色粒子颜色数组
+    final colors = [
+      Color(0xFFFFD700), // 金色
+      Color(0xFFFF6B35), // 橙色
+      Color(0xFFFF1493), // 深粉色
+      Color(0xFF00CED1), // 深青色
+      Color(0xFF32CD32), // 酸橙绿
+      Color(0xFF9370DB), // 中等紫色
+      Color(0xFFFF4500), // 橙红色
+      Color(0xFF00BFFF), // 深天蓝
+      Color(0xFFFF69B4), // 热粉色
+      Color(0xFF7CFC00), // 草坪绿
+      Color(0xFFFFF700), // 柠檬黄
+      Color(0xFF8A2BE2), // 蓝紫色
+      Color(0xFFFF6347), // 番茄色
+      Color(0xFF00FA9A), // 春绿色
+    ];
+
+    // 一次性创建所有粒子，立即显示
+    for (int i = 0; i < particleCount; i++) {
+      final angle = random.nextDouble() * 2 * pi;
+      final speed = 100 + random.nextDouble() * 200; // 100-300的速度，更快的初始速度
+      final velocity = Offset(cos(angle) * speed, sin(angle) * speed);
+
+      // 随机选择颜色
+      final color = colors[random.nextInt(colors.length)];
+
+      // 创建更细腻的粒子大小分布
+      final size = i < particleCount * 0.1
+          ? 6 +
+                random.nextDouble() *
+                    10 // 10%的大粒子
+          : i < particleCount * 0.3
+          ? 3 +
+                random.nextDouble() *
+                    6 // 20%的中等粒子
+          : 1 + random.nextDouble() * 3; // 70%的小粒子
+
+      final particle = Particle(
+        position: position,
+        velocity: velocity,
+        life: 1.0 + random.nextDouble() * 0.8, // 1.0-1.8秒的生命，稍微缩短
+        maxLife: 1.0 + random.nextDouble() * 0.8,
+        color: color,
+        size: size,
+      );
+
+      _particles.add(particle);
+    }
+
+    // 立即开始粒子动画，所有粒子同时出现
+    _particleAnimationController.reset();
+    _particleAnimationController.forward();
+    print('粒子效果创建完成，粒子数量: $particleCount');
+  }
+
+  // 更新粒子
+  void _updateParticles(double deltaTime) {
+    _particles.removeWhere((particle) {
+      particle.update(deltaTime);
+      return particle.isDead();
+    });
+  }
+
+  // 检测新激活的按钮
+  void _detectNewlyActivatedButtons() {
+    final totalWeight = _totalScore;
+    final weightPerButton = 100;
+    final coveredButtons = (totalWeight / weightPerButton).floor();
+    final remainingWeight = totalWeight % weightPerButton;
+
+    final newlyActivated = <int>{};
+
+    for (int i = 0; i < _radioButtons.length; i++) {
+      final isInOverlay =
+          i < coveredButtons || (i == coveredButtons && remainingWeight >= 0);
+
+      if (isInOverlay && !_activatedButtonIndices.contains(i)) {
+        newlyActivated.add(i);
+      }
+    }
+
+    if (newlyActivated.isNotEmpty) {
+      print('检测到 ${newlyActivated.length} 个新激活的按钮: $newlyActivated');
+
+      // 为新激活的按钮创建粒子效果
+      for (final buttonIndex in newlyActivated) {
+        if (buttonIndex < _radioButtons.length) {
+          print('为按钮 $buttonIndex 创建粒子效果');
+          _createParticleEffect(_radioButtons[buttonIndex].position);
+        }
+      }
+    } else {
+      print('没有检测到新激活的按钮');
+    }
+
+    // 更新已激活按钮集合
+    _activatedButtonIndices.addAll(newlyActivated);
+  }
+
+  // 积分变化监听器
+  void _onScoreChanged(int newScore) {
+    if (mounted) {
+      print('积分监听器触发，新积分: $newScore，当前积分: $_totalScore');
+
+      // 检查是否是特殊标记，用于触发数据库检查
+      if (newScore == -1) {
+        print('收到特殊标记，触发数据库检查更新');
+        checkAndUpdateGlobalState();
+        return;
+      }
+
+      // 检查积分值是否有实际变化
+      if (newScore != _totalScore) {
+        print('检测到积分值变化，准备触发动画');
+
+        // 保存之前的积分值
+        _previousTotalScore = _totalScore;
+
+        setState(() {
+          _totalScore = newScore;
+        });
+
+        print('页面积分已更新为: $_totalScore');
+
+        // 触发动画效果
+        _triggerButtonAnimation();
+
+        // 检测新激活的按钮并创建粒子效果
+        _detectNewlyActivatedButtons();
+      } else {
+        print('积分值无变化，仅更新显示');
+        setState(() {
+          _totalScore = newScore;
+        });
+      }
+    }
+  }
+
+  // 从数据库更新全局状态（仅在页面初始化完成时调用）
+  Future<void> _updateGlobalStateFromDatabase() async {
+    try {
+      print('开始从数据库更新全局状态...');
+      // 从数据库读取最新积分值
+      if (_currentUser != null) {
+        final latestScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+        print('从数据库读取到最新积分值: $latestScore');
+
+        // 检查积分值是否有变化
+        if (latestScore != _totalScore) {
+          print('检测到积分值变化: $_totalScore -> $latestScore，准备触发动画');
+
+          // 保存之前的积分值用于动画
+          _previousTotalScore = _totalScore;
+
+          // 更新全局状态并触发监听器通知UI组件
+          final globalState = GlobalState();
+          globalState.setScoreSilently(latestScore);
+          globalState.notifyScoreListeners();
+
+          // 触发动画效果
+          _triggerButtonAnimation();
+
+          // 检测新激活的按钮并创建粒子效果
+          _detectNewlyActivatedButtons();
+
+          print('页面初始化完成，已更新全局状态为数据库最新值: $latestScore，并触发动画和粒子效果');
+        } else {
+          print('积分值无变化，仅更新全局状态');
+          // 更新全局状态并触发监听器通知UI组件
+          final globalState = GlobalState();
+          globalState.setScoreSilently(latestScore);
+          globalState.notifyScoreListeners();
+        }
+      }
+    } catch (e) {
+      print('更新全局状态失败: $e');
+    }
+  }
+
+  // 检查并更新全局状态（用于页面重新获得焦点时）
+  Future<void> _checkAndUpdateGlobalState() async {
+    try {
+      print('页面重新获得焦点，检查并更新全局状态...');
+
+      if (_currentUser != null) {
+        // 从数据库读取最新积分值
+        final latestScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+        print('从数据库读取到最新积分值: $latestScore，当前页面积分: $_totalScore');
+
+        // 检查积分值是否有变化
+        if (latestScore != _totalScore) {
+          print('检测到积分值变化: $_totalScore -> $latestScore，准备触发动画和粒子效果');
+
+          // 保存之前的积分值用于动画
+          _previousTotalScore = _totalScore;
+
+          // 更新页面状态
+          setState(() {
+            _totalScore = latestScore;
+          });
+
+          // 触发动画效果
+          _triggerButtonAnimation();
+
+          // 检测新激活的按钮并创建粒子效果
+          _detectNewlyActivatedButtons();
+
+          print('页面重新获得焦点后，已更新积分为: $latestScore，并触发动画和粒子效果');
+        } else {
+          print('积分值无变化，无需更新');
+        }
+      }
+    } catch (e) {
+      print('检查并更新全局状态失败: $e');
+    }
+  }
+
+  // 检查并更新全局状态（用于抽屉页面积分更新后）
+  Future<void> checkAndUpdateGlobalState() async {
+    try {
+      print('收到积分更新通知，检查并更新全局状态...');
+
+      if (_currentUser != null) {
+        // 从数据库读取最新积分值
+        final latestScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+        print('从数据库读取到最新积分值: $latestScore，当前页面积分: $_totalScore');
+
+        // 检查积分值是否有变化
+        if (latestScore != _totalScore) {
+          print('检测到积分值变化: $_totalScore -> $latestScore，准备触发动画和粒子效果');
+
+          // 保存之前的积分值用于动画
+          _previousTotalScore = _totalScore;
+
+          // 更新页面状态
+          setState(() {
+            _totalScore = latestScore;
+          });
+
+          // 触发动画效果
+          _triggerButtonAnimation();
+
+          // 检测新激活的按钮并创建粒子效果
+          _detectNewlyActivatedButtons();
+
+          print('抽屉页面积分更新后，已更新积分为: $latestScore，并触发动画和粒子效果');
+        } else {
+          print('积分值无变化，无需更新');
+        }
+      }
+    } catch (e) {
+      print('检查并更新全局状态失败: $e');
+    }
   }
 }
 
@@ -1280,7 +2410,7 @@ class BezierCurveOverlayPainter extends CustomPainter {
       remainingWeight -= weightPerButton;
 
       // 如果权重不足，计算等比覆盖
-      if (remainingWeight <= 0) {
+      if (remainingWeight < 0) {
         // 计算最后一个完整覆盖的按钮
         final lastFullButton = i - 1;
         if (lastFullButton >= 0) {
@@ -1647,6 +2777,84 @@ class BezierCurveOverlayPainter extends CustomPainter {
         tCubed * p3.dy;
 
     return Offset(x, y);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
+  }
+}
+
+// 粒子类
+class Particle {
+  Offset position;
+  Offset velocity;
+  double life;
+  double maxLife;
+  Color color;
+  double size;
+
+  Particle({
+    required this.position,
+    required this.velocity,
+    required this.life,
+    required this.maxLife,
+    required this.color,
+    required this.size,
+  });
+
+  void update(double deltaTime) {
+    position += velocity * deltaTime;
+    velocity *= 0.92; // 更强的阻力，让粒子更快减速并聚集
+    life -= deltaTime;
+  }
+
+  bool isDead() => life <= 0;
+}
+
+// 粒子绘制器
+class ParticlePainter extends CustomPainter {
+  final List<Particle> particles;
+
+  ParticlePainter(this.particles);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final particle in particles) {
+      final opacity = particle.life / particle.maxLife;
+
+      // 绘制发光效果（更细腻）
+      final glowPaint = Paint()
+        ..color = particle.color.withOpacity(opacity * 0.4)
+        ..style = PaintingStyle.fill
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, particle.size * 0.8);
+
+      canvas.drawCircle(particle.position, particle.size * 2.0, glowPaint);
+
+      // 绘制主粒子
+      final paint = Paint()
+        ..color = particle.color.withOpacity(opacity)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(particle.position, particle.size, paint);
+
+      // 绘制高光效果（更细腻）
+      if (particle.size > 2) {
+        // 只为较大的粒子添加高光
+        final highlightPaint = Paint()
+          ..color = Colors.white.withOpacity(opacity * 0.7)
+          ..style = PaintingStyle.fill;
+
+        canvas.drawCircle(
+          Offset(
+            particle.position.dx - particle.size * 0.25,
+            particle.position.dy - particle.size * 0.25,
+          ),
+          particle.size * 0.25,
+          highlightPaint,
+        );
+      }
+    }
   }
 
   @override

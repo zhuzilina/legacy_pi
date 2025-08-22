@@ -69,5 +69,3 @@ class Achievement {
     return 'Achievement{id: $id, userId: $userId, name: $name, description: $description, icon: $icon, earnedAt: $earnedAt, isUnlocked: $isUnlocked}';
   }
 }
-
-

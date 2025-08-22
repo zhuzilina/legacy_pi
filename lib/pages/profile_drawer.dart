@@ -7,23 +7,29 @@ import '../models/user_score.dart';
 import '../models/achievement.dart';
 
 class ProfileDrawer extends StatefulWidget {
-  const ProfileDrawer({super.key});
+  final VoidCallback? onScoreUpdated;
+  final VoidCallback? onDrawerClosed;
+
+  const ProfileDrawer({super.key, this.onScoreUpdated, this.onDrawerClosed});
 
   @override
   State<ProfileDrawer> createState() => _ProfileDrawerState();
 }
 
-class _ProfileDrawerState extends State<ProfileDrawer> {
+class _ProfileDrawerState extends State<ProfileDrawer>
+    with WidgetsBindingObserver {
   final DatabaseHelper _databaseHelper = DatabaseHelper();
   User? _currentUser;
   int _totalScore = 0;
   int _achievementsCount = 0;
   final ImagePicker _picker = ImagePicker();
+  bool _hasScoreUpdated = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   Future<void> _loadUserData() async {
@@ -161,6 +167,160 @@ class _ProfileDrawerState extends State<ProfileDrawer> {
     }
   }
 
+  // 显示积分调节对话框
+  Future<void> _showScoreAdjustDialog() async {
+    if (_currentUser == null) return;
+
+    final TextEditingController controller = TextEditingController(
+      text: _totalScore.toString(),
+    );
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('调节积分'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('请输入要调整的积分值：'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: '积分值',
+                hintText: '请输入积分值',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '注意：这将直接设置积分值，用于测试动画效果',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final newScore = int.tryParse(controller.text);
+              if (newScore != null && newScore >= 0) {
+                Navigator.pop(context, {
+                  'score': newScore,
+                  'description': '测试积分调节',
+                });
+              } else {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('请输入有效的积分值')));
+              }
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      try {
+        // 添加积分记录
+        await _databaseHelper.insertUserScore(
+          UserScore(
+            userId: _currentUser!.id!,
+            score: result['score'] - _totalScore, // 计算差值
+            description: result['description'],
+            earnedAt: DateTime.now(),
+          ),
+        );
+
+        // 重新加载数据
+        await _loadUserData();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('积分已调整为 ${result['score']}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // 设置积分更新标记，等待抽屉关闭时通知
+          _hasScoreUpdated = true;
+          print('ProfileDrawer: 积分已更新，设置标记等待抽屉关闭，当前标记状态: $_hasScoreUpdated');
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('积分调节失败: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
+
+  // 快速调节积分
+  Future<void> _quickAdjustScore(int scoreChange) async {
+    if (_currentUser == null) return;
+
+    try {
+      // 计算新的积分值
+      final newScore = _totalScore + scoreChange;
+
+      // 确保积分不为负数
+      if (newScore < 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('积分不能为负数'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 添加积分记录
+      await _databaseHelper.insertUserScore(
+        UserScore(
+          userId: _currentUser!.id!,
+          score: scoreChange,
+          description: scoreChange > 0 ? '测试增加积分' : '测试减少积分',
+          earnedAt: DateTime.now(),
+        ),
+      );
+
+      // 重新加载数据
+      await _loadUserData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              scoreChange > 0
+                  ? '积分已增加 $scoreChange'
+                  : '积分已减少 ${scoreChange.abs()}',
+            ),
+            backgroundColor: scoreChange > 0 ? Colors.green : Colors.orange,
+          ),
+        );
+
+        // 设置积分更新标记，等待抽屉关闭时通知
+        _hasScoreUpdated = true;
+        print('ProfileDrawer: 积分已更新，设置标记等待抽屉关闭，当前标记状态: $_hasScoreUpdated');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('积分调节失败: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -185,6 +345,45 @@ class _ProfileDrawerState extends State<ProfileDrawer> {
         ),
       ),
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    print('ProfileDrawer: didChangeDependencies 被调用');
+    // 监听抽屉关闭事件
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        print('ProfileDrawer: 添加抽屉关闭监听器');
+        // 检查抽屉是否即将关闭
+        final route = ModalRoute.of(context);
+        if (route != null) {
+          print('ProfileDrawer: 找到路由，添加WillPopCallback');
+          route.addScopedWillPopCallback(() async {
+            print(
+              'ProfileDrawer: WillPopCallback 被触发，当前标记状态: $_hasScoreUpdated',
+            );
+            // 抽屉即将关闭时，检查是否需要通知积分更新
+            if (_hasScoreUpdated) {
+              print('ProfileDrawer: 抽屉即将关闭，通知积分更新');
+              // 延迟执行，确保抽屉完全关闭后再通知
+              Future.delayed(const Duration(milliseconds: 300), () {
+                print('ProfileDrawer: 延迟执行通知回调');
+                widget.onDrawerClosed?.call();
+                _hasScoreUpdated = false;
+              });
+            } else {
+              print('ProfileDrawer: 没有积分更新标记，不通知');
+            }
+            return true;
+          });
+        } else {
+          print('ProfileDrawer: 未找到路由');
+        }
+      } else {
+        print('ProfileDrawer: 组件未挂载');
+      }
+    });
   }
 
   Widget _buildUserHeader() {
@@ -321,59 +520,125 @@ class _ProfileDrawerState extends State<ProfileDrawer> {
           const SizedBox(height: 12),
 
           // 积分卡片
-          GestureDetector(
-            onTap: () async {
-              await _loadUserData();
-              if (mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('数据已刷新')));
-              }
-            },
-            child: Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.stars,
+                          color: Colors.orange,
+                          size: 24,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.stars,
-                        color: Colors.orange,
-                        size: 24,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '当前积分',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            Text(
+                              '$_totalScore',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '当前积分',
-                            style: TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                          Text(
-                            '$_totalScore',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange,
+                      IconButton(
+                        onPressed: () async {
+                          await _loadUserData();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('数据已刷新')),
+                            );
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.refresh,
+                          color: Colors.grey,
+                          size: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // 积分调节按钮
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showScoreAdjustDialog(),
+                          icon: const Icon(Icons.tune, size: 16),
+                          label: const Text('调节积分'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[600],
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                    const Icon(Icons.refresh, color: Colors.grey, size: 16),
-                  ],
-                ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // 快速测试按钮
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _quickAdjustScore(100),
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('+100'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.green[600],
+                            side: BorderSide(color: Colors.green[600]!),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _quickAdjustScore(-100),
+                          icon: const Icon(Icons.remove, size: 16),
+                          label: const Text('-100'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red[600],
+                            side: BorderSide(color: Colors.red[600]!),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
@@ -615,7 +880,7 @@ class _ProfileDrawerState extends State<ProfileDrawer> {
             '红色文化学习 v1.0.0',
             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             '让红色文化在新时代焕发新光彩',
             style: TextStyle(fontSize: 10, color: Colors.grey[500]),
@@ -623,5 +888,34 @@ class _ProfileDrawerState extends State<ProfileDrawer> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    // 在dispose时检查是否需要通知积分更新
+    if (_hasScoreUpdated) {
+      print('ProfileDrawer: 组件销毁时，通知积分更新');
+      widget.onDrawerClosed?.call();
+      _hasScoreUpdated = false;
+    }
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 当应用失去焦点时（抽屉关闭），检查是否需要通知积分更新
+    if (state == AppLifecycleState.paused && _hasScoreUpdated) {
+      print('ProfileDrawer: 应用失去焦点，检查是否需要通知积分更新');
+      // 延迟执行，确保抽屉完全关闭
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_hasScoreUpdated) {
+          print('ProfileDrawer: 抽屉关闭，通知积分更新');
+          widget.onDrawerClosed?.call();
+          _hasScoreUpdated = false;
+        }
+      });
+    }
   }
 }

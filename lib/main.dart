@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'pages/home_page.dart';
+import 'services/global_state.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 初始化全局状态
+  await GlobalState().initialize();
+
   runApp(const RedCultureApp());
 }
 
