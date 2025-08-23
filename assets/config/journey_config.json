@@ -1,0 +1,56 @@
+{
+  "containerHeight": 11500,
+  "buttonSpacing": 115,
+  "buttonMargin": 50,
+  "marginRatio": 0.25,
+  "buttons": [
+    {
+      "id": 1,
+      "yPosition": 1175,
+      "imageGroupPath": "assets/images/journey/img1",
+      "activeImageName": "D.png",
+      "imageGroupId": 1,
+      "description": "第一个里程碑"
+    },
+    {
+      "id": 2,
+      "yPosition": 1060,
+      "imageGroupPath": "assets/images/journey/img1",
+      "activeImageName": "C.png",
+      "imageGroupId": 1,
+      "description": "第二个里程碑"
+    },
+    {
+      "id": 3,
+      "yPosition": 945,
+      "imageGroupPath": "assets/images/journey/img1",
+      "activeImageName": "B.png",
+      "imageGroupId": 1,
+      "description": "第三个里程碑"
+    },
+    {
+      "id": 4,
+      "yPosition": 830,
+      "imageGroupPath": "assets/images/journey/img1",
+      "activeImageName": "A.png",
+      "imageGroupId": 1,
+      "description": "第四个里程碑"
+    },
+    {
+      "id": 5,
+      "yPosition": 715,
+      "imageGroupPath": "assets/images/journey/img2",
+      "activeImageName": "D.png",
+      "imageGroupId": 2,
+      "description": "第五个里程碑"
+    },
+    {
+      "id": 6,
+      "yPosition": 600,
+      "imageGroupPath": "assets/images/journey/img2",
+      "activeImageName": "C.png",
+      "imageGroupId": 2,
+      "description": "第六个里程碑"
+    }
+  ]
+}
