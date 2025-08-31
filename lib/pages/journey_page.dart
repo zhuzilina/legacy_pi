@@ -6,10 +6,9 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import '../models/user.dart';
-import '../models/user_score.dart';
+
 import '../services/global_state.dart';
-import '../models/journey_config.dart';
-import '../services/journey_config_service.dart';
+import '../services/button_config_service.dart';
 
 class JourneyPage extends StatefulWidget {
   final VoidCallback? onScoreUpdated;
@@ -61,7 +60,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   static const String _storageKey = 'journey_button_positions';
 
   // 气泡状态管理
-  String? _activeBubbleButtonId; // 当前显示气泡的按钮ID
+  int? _activeBubbleButtonId; // 当前显示气泡的按钮ID
   bool _showEndButtonBubble = true; // 控制大按钮气泡的显示
 
   // 数据库和用户管理
@@ -71,14 +70,8 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   bool _isInitialized = false; // 标记是否已初始化
   bool _hasInitializedFromDatabase = false; // 标记是否已从数据库初始化
 
-  // 配置服务
-  final JourneyConfigService _configService = JourneyConfigService();
-
-  // 图片组管理器
-  final ImageGroupManager _imageGroupManager = ImageGroupManager();
-
-  // 激活的图片配置
-  List<JourneyButtonConfig> _activeImages = [];
+  // 按钮配置服务
+  final ButtonConfigService _buttonConfigService = ButtonConfigService();
 
   // 用户头像
   String? _userAvatarPath;
@@ -122,7 +115,23 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadConfigAndUpdateImages();
+    _loadButtonConfig();
+  }
+
+  // 加载按钮配置
+  Future<void> _loadButtonConfig() async {
+    try {
+      print('开始加载按钮描述配置...');
+      await _buttonConfigService.loadConfig();
+      print('按钮描述配置加载完成，配置状态: ${_buttonConfigService.isLoaded}');
+      
+      // 强制重新构建UI以确保配置生效
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print('加载按钮描述配置失败: $e');
+    }
   }
 
   // 初始化动画
@@ -157,7 +166,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     );
 
     _buttonColorAnimation =
-        ColorTween(begin: Color(0xFFFFD700), end: Colors.orange).animate(
+        ColorTween(begin: Colors.red[300]!, end: Colors.red[700]!).animate(
           CurvedAnimation(
             parent: _buttonAnimationController,
             curve: Curves.easeInOut,
@@ -182,235 +191,15 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     );
   }
 
-  // 加载配置并更新图片
-  Future<void> _loadConfigAndUpdateImages() async {
-    try {
-      // 加载配置
-      await _configService.loadConfig();
-      print('配置加载完成，开始初始化按钮和图片组');
+  // 移除图片配置加载方法
 
-      // 配置加载完成后，重新初始化激活的按钮和图片组
-      _initializeActivatedButtonsAndImages();
+  // 移除图片组初始化方法
 
-      // 更新激活的图片
-      _updateActiveImages();
-    } catch (e) {
-      print('加载配置失败: $e');
-    }
-  }
+  // 移除更新激活图片的方法
 
-  // 初始化激活的按钮和图片组
-  void _initializeActivatedButtonsAndImages() {
-    if (!_configService.isLoaded || _radioButtons.isEmpty) {
-      print('配置未加载或按钮未初始化，跳过图片组初始化');
-      return;
-    }
+  // 移除构建背景图片层的方法
 
-    print('重新初始化激活按钮和图片组');
-    // 清空图片组管理器
-    for (final groupId in _imageGroupManager.getAllGroups().keys) {
-      _imageGroupManager.clearGroup(groupId);
-    }
-
-    // 重新计算激活的按钮
-    final totalWeight = _totalScore;
-    final weightPerButton = 100;
-    final coveredButtons = (totalWeight / weightPerButton).floor();
-    final remainingWeight = totalWeight % weightPerButton;
-
-    _activatedButtonIndices.clear();
-    for (int i = 0; i < _radioButtons.length; i++) {
-      final isInOverlay =
-          i < coveredButtons || (i == coveredButtons && remainingWeight >= 0);
-      if (isInOverlay) {
-        _activatedButtonIndices.add(i);
-      }
-    }
-
-    // 重新初始化图片组
-    print('重新初始化图片组: 激活按钮索引: $_activatedButtonIndices');
-    for (final buttonIndex in _activatedButtonIndices) {
-      if (buttonIndex < _radioButtons.length) {
-        final button = _radioButtons[buttonIndex];
-        print('重新初始化图片组: 检查按钮索引 $buttonIndex, ID ${button.id}');
-        final buttonConfig = _configService.getButtonConfigById(button.id);
-        if (buttonConfig != null) {
-          print(
-            '重新初始化时添加图片到组: 按钮 ${button.id}, 组 ${buttonConfig.imageGroupId}, 图片 ${buttonConfig.fullImagePath}',
-          );
-          _imageGroupManager.addImageToGroup(
-            buttonConfig.imageGroupId,
-            buttonConfig.fullImagePath,
-          );
-        } else {
-          print('重新初始化图片组: 按钮 ${button.id} 没有找到配置');
-        }
-      }
-    }
-  }
-
-  // 更新激活的图片
-  void _updateActiveImages() {
-    print('更新激活图片: 配置是否已加载: ${_configService.isLoaded}');
-    if (_configService.isLoaded) {
-      setState(() {
-        // 根据激活的按钮索引获取对应的按钮ID
-        final activatedButtonIds = _activatedButtonIndices
-            .where((index) => index < _radioButtons.length)
-            .map((index) => _radioButtons[index].id)
-            .toSet();
-
-        print('更新激活图片: 激活按钮ID: $activatedButtonIds');
-
-        // 获取对应的图片配置
-        _activeImages = activatedButtonIds
-            .map((id) {
-              final config = _configService.getButtonConfigById(id);
-              print('查找按钮ID $id 的配置: ${config != null ? '找到' : '未找到'}');
-              return config;
-            })
-            .where((config) => config != null)
-            .cast<JourneyButtonConfig>()
-            .toList();
-
-        // 按显示顺序排序（从下到上）
-        _activeImages.sort((a, b) => b.yPosition.compareTo(a.yPosition));
-      });
-      print('更新激活图片: 激活按钮索引: $_activatedButtonIndices');
-      print('更新激活图片: 激活图片数量: ${_activeImages.length}');
-      print(
-        '更新激活图片: 激活图片: ${_activeImages.map((img) => '${img.id}:${img.fullImagePath}').join(', ')}',
-      );
-    }
-  }
-
-  // 构建背景图片层
-  List<Widget> _buildBackgroundImages() {
-    if (!_configService.isLoaded || _activeImages.isEmpty) {
-      print('构建背景图片层: 配置未加载或没有激活的图片');
-      return [];
-    }
-
-    // 使用响应式尺寸
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final containerHeight = _configService.containerHeight;
-
-    print('构建背景图片层: 激活图片数量: ${_activeImages.length}');
-    print(
-      '构建背景图片层: 激活图片: ${_activeImages.map((img) => '${img.id}:${img.fullImagePath}').join(', ')}',
-    );
-
-    List<Widget> imageWidgets = [];
-
-    // 获取所有激活的图片组
-    final activeGroups = _getActiveImageGroups();
-    print('构建背景图片层: 激活图片组: $activeGroups');
-
-    // 为每个激活的图片组创建一个显示区域
-    final activeGroupsList = activeGroups.toList()..sort(); // 确保图片组按ID排序
-    double accumulatedHeight = 0; // 累计的图片高度
-
-    for (int i = 0; i < activeGroupsList.length; i++) {
-      final groupId = activeGroupsList[i];
-      final groupImages = _imageGroupManager.getGroupImages(groupId);
-      print('构建背景图片层: 图片组 $groupId 包含图片: $groupImages');
-
-      if (groupImages.isNotEmpty) {
-        // 找到该组中Y坐标最大的按钮（最底部的按钮）
-        final buttonsInGroup = _radioButtons.where((button) {
-          final buttonConfig = _configService.getButtonConfigById(button.id);
-          return buttonConfig?.imageGroupId == groupId;
-        }).toList();
-
-        if (buttonsInGroup.isNotEmpty) {
-          final containerHeight = _configService.containerHeight;
-          final screenHeight = MediaQuery.of(context).size.height;
-
-          // 使用当前图片组的实际高度（这里先用估算值，后面可以改进为实际加载图片获取尺寸）
-          final currentGroupHeight = screenWidth * 0.75; // 当前组图片高度
-          final groupSpacing = 50; // 组间间距
-
-          // 计算定位：第一组在底部，后续组根据前面所有组的累计高度来定位
-          // 图片的底部对齐到计算出的位置，从容器底部开始向上排列
-          // 后续组再向上偏移200像素以确保间距
-          final bottomPadding = 220.0; // 与LayoutBuilder中的底部垫高保持一致
-          final baseOffset =
-              screenHeight +
-              containerHeight +
-              bottomPadding -
-              currentGroupHeight -
-              380 - // 增加偏移，从300增加到380，让图片层往上移动80像素
-              accumulatedHeight;
-          final topOffset = i == 0 ? baseOffset : baseOffset - 200;
-
-          print(
-            '构建背景图片层: 图片组 $groupId (第${i + 1}组) 定位: 当前组高度=$currentGroupHeight, 当前累计高度=$accumulatedHeight, top=$topOffset',
-          );
-
-          // 更新累计高度（为下一组做准备）
-          accumulatedHeight += currentGroupHeight + groupSpacing;
-
-          imageWidgets.add(
-            Positioned(
-              top: topOffset,
-              left: 0,
-              child: SizedBox(
-                width: screenWidth,
-                child: Stack(
-                  children: groupImages.map((imagePath) {
-                    print('构建背景图片层: 添加图片: $imagePath');
-                    return Image.asset(
-                      imagePath,
-                      width: screenWidth,
-                      fit: BoxFit.fitWidth,
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          );
-        }
-        // 如果没有找到对应按钮，跳过这个组
-      }
-    }
-
-    print('构建背景图片层: 返回 ${imageWidgets.length} 个图片组件');
-
-    // 添加图片层的底部垫高容器，确保与主容器一致
-    final bottomPadding = 220.0;
-    imageWidgets.add(
-      Positioned(
-        bottom: 0,
-        left: 0,
-        child: Container(
-          width: MediaQuery.of(context).size.width,
-          height: bottomPadding,
-          color: Colors.transparent, // 透明背景
-        ),
-      ),
-    );
-
-    return imageWidgets;
-  }
-
-  // 获取所有激活的图片组ID
-  Set<int> _getActiveImageGroups() {
-    final groups = <int>{};
-    for (final imageConfig in _activeImages) {
-      groups.add(imageConfig.imageGroupId);
-    }
-    return groups;
-  }
-
-  // 计算所有激活图片的总高度
-  double _getTotalImagesHeight() {
-    if (_activeImages.isEmpty) return 0;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    // 使用一个合理的默认高度，实际应用中可能需要更精确的计算
-    return _activeImages.length * (screenWidth * 0.75);
-  }
+  // 移除图片组相关方法
 
   // 加载用户头像
   Future<void> _loadUserAvatar() async {
@@ -426,30 +215,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     }
   }
 
-  // 设置用户头像
-  Future<void> setUserAvatar(String avatarPath) async {
-    try {
-      if (_currentUser != null) {
-        // 更新数据库中的用户头像
-        final updatedUser = _currentUser!.copyWith(
-          avatarPath: avatarPath,
-          updatedAt: DateTime.now(),
-        );
-        await _databaseHelper.updateUser(updatedUser);
 
-        // 更新当前用户对象
-        _currentUser = updatedUser;
-
-        setState(() {
-          _userAvatarPath = avatarPath;
-        });
-
-        print('用户头像已更新到数据库: $avatarPath');
-      }
-    } catch (e) {
-      print('设置用户头像失败: $e');
-    }
-  }
 
   // 触发按钮动画
   void _triggerButtonAnimation() {
@@ -515,7 +281,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
         : _totalScore;
 
     final totalWeight = animatedScore.round();
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     int remainingWeight = totalWeight;
 
     // 从第一个按钮开始
@@ -526,10 +292,10 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     for (int i = 1; i < _radioButtons.length; i++) {
       remainingWeight -= weightPerButton;
 
-      // 检查积分是否为100的整数倍
-      if (totalWeight % 100 == 0) {
-        // 如果是100的整数倍，直接定位到对应的按钮上
-        final buttonIndex = (totalWeight / 100).floor();
+      // 检查积分是否为500的整数倍
+      if (totalWeight % 500 == 0) {
+        // 如果是500的整数倍，直接定位到对应的按钮上
+        final buttonIndex = (totalWeight / 500).floor();
         if (buttonIndex < _radioButtons.length) {
           endPosition = _radioButtons[buttonIndex].position;
         } else {
@@ -538,7 +304,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
         break;
       }
 
-      // 如果不是100的整数倍，使用覆盖层尾部定位
+      // 如果不是500的整数倍，使用覆盖层尾部定位
       if (remainingWeight < 0) {
         // 计算剩余权重的比例
         final remainingRatio =
@@ -698,13 +464,13 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     if (_radioButtons.isEmpty) return Offset.zero;
 
     final totalWeight = score;
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     int remainingWeight = totalWeight;
 
-    // 检查积分是否为100的整数倍
-    if (totalWeight % 100 == 0) {
-      // 如果是100的整数倍，直接定位到对应的按钮上
-      final buttonIndex = (totalWeight / 100).floor();
+    // 检查积分是否为500的整数倍
+    if (totalWeight % 500 == 0) {
+      // 如果是500的整数倍，直接定位到对应的按钮上
+      final buttonIndex = (totalWeight / 500).floor();
       if (buttonIndex < _radioButtons.length) {
         return _radioButtons[buttonIndex].position;
       } else {
@@ -720,7 +486,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     for (int i = 1; i < _radioButtons.length; i++) {
       remainingWeight -= weightPerButton;
 
-      // 如果不是100的整数倍，使用覆盖层尾部定位
+      // 如果不是500的整数倍，使用覆盖层尾部定位
       if (remainingWeight < 0) {
         // 计算剩余权重的比例
         final remainingRatio =
@@ -927,6 +693,14 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       if (savedPositionsJson != null) {
         // 如果有保存的位置，则加载
         final List<dynamic> savedPositions = jsonDecode(savedPositionsJson);
+        
+        // 检查保存的按钮数量，如果不是20个就重新生成
+        if (savedPositions.length != 20) {
+          print('检测到保存的按钮数量为${savedPositions.length}，不是20个，将重新生成');
+          _generateRandomRadioButtons();
+          return;
+        }
+        
         _radioButtons.clear();
 
         for (int i = 0; i < savedPositions.length; i++) {
@@ -960,7 +734,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
           // 初始化已激活按钮集合
           _activatedButtonIndices.clear();
           final totalWeight = _totalScore;
-          final weightPerButton = 100;
+          final weightPerButton = 500; // 调整权重以适应20个按钮
           final coveredButtons = (totalWeight / weightPerButton).floor();
           final remainingWeight = totalWeight % weightPerButton;
 
@@ -973,34 +747,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
             }
           }
 
-          // 初始化图片组管理器
-          print('初始化图片组管理器: 激活按钮索引: $_activatedButtonIndices');
-          print('初始化图片组管理器: 按钮总数: ${_radioButtons.length}');
-          for (final buttonIndex in _activatedButtonIndices) {
-            if (buttonIndex < _radioButtons.length) {
-              final button = _radioButtons[buttonIndex];
-              print('初始化图片组管理器: 检查按钮索引 $buttonIndex, ID ${button.id}');
-              final buttonConfig = _configService.getButtonConfigById(
-                button.id,
-              );
-              if (buttonConfig != null) {
-                print(
-                  '初始化时添加图片到组: 按钮 ${button.id}, 组 ${buttonConfig.imageGroupId}, 图片 ${buttonConfig.fullImagePath}',
-                );
-                _imageGroupManager.addImageToGroup(
-                  buttonConfig.imageGroupId,
-                  buttonConfig.fullImagePath,
-                );
-              } else {
-                print('初始化图片组管理器: 按钮 ${button.id} 没有找到配置');
-              }
-            } else {
-              print('初始化图片组管理器: 按钮索引 $buttonIndex 超出范围');
-            }
-          }
-
-          // 更新激活的图片
-          _updateActiveImages();
+          // 移除图片组管理器初始化
 
           // 强制重新构建以显示覆盖层
           setState(() {});
@@ -1042,18 +789,18 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       final size = MediaQuery.of(context).size;
 
       // 计算可用宽度（屏幕宽度减去左右边距）
-      final margin = size.width * _configService.marginRatio;
+      final margin = size.width * 0.25; // 使用固定的边距比例
       final availableWidth = size.width - (margin * 2); // 可用宽度
       final startX = margin; // 左边距
 
-      // 生成100个按钮，沿Y轴等距分布，X轴随机
-      for (int i = 0; i < 100; i++) {
+      // 生成20个按钮，沿Y轴等距分布，X轴随机
+      for (int i = 0; i < 20; i++) {
         // Y轴等距分布，使用配置的间距
         // 从容器底部开始，向上分布
         final yPosition =
-            (size.height + _configService.containerHeight) -
-            _configService.buttonMargin -
-            (i * _configService.buttonSpacing);
+            (size.height + 7000) - // 使用调整后的容器高度
+            50 - // 使用固定的按钮边距
+            (i * 300); // 使用300像素间距
 
         // X轴随机分布
         final xPosition = startX + (random.nextDouble() * availableWidth);
@@ -1072,7 +819,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
             '第一个按钮位置: ID=${i + 1}, 位置=(${xPosition.toStringAsFixed(2)}, ${yPosition.toStringAsFixed(2)})',
           );
           print('屏幕尺寸: ${size.width} x ${size.height}');
-          print('容器高度: ${_configService.containerHeight}');
+          print('容器高度: 7000');
         }
       }
 
@@ -1091,7 +838,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
         // 初始化已激活按钮集合
         _activatedButtonIndices.clear();
         final totalWeight = _totalScore;
-        final weightPerButton = 100;
+        final weightPerButton = 500; // 调整权重以适应20个按钮
         final coveredButtons = (totalWeight / weightPerButton).floor();
         final remainingWeight = totalWeight % weightPerButton;
 
@@ -1104,32 +851,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
           }
         }
 
-        // 初始化图片组管理器
-        print('初始化图片组管理器2: 激活按钮索引: $_activatedButtonIndices');
-        print('初始化图片组管理器2: 按钮总数: ${_radioButtons.length}');
-        for (final buttonIndex in _activatedButtonIndices) {
-          if (buttonIndex < _radioButtons.length) {
-            final button = _radioButtons[buttonIndex];
-            print('初始化图片组管理器2: 检查按钮索引 $buttonIndex, ID ${button.id}');
-            final buttonConfig = _configService.getButtonConfigById(button.id);
-            if (buttonConfig != null) {
-              print(
-                '初始化时添加图片到组2: 按钮 ${button.id}, 组 ${buttonConfig.imageGroupId}, 图片 ${buttonConfig.fullImagePath}',
-              );
-              _imageGroupManager.addImageToGroup(
-                buttonConfig.imageGroupId,
-                buttonConfig.fullImagePath,
-              );
-            } else {
-              print('初始化图片组管理器2: 按钮 ${button.id} 没有找到配置');
-            }
-          } else {
-            print('初始化图片组管理器2: 按钮索引 $buttonIndex 超出范围');
-          }
-        }
-
-        // 更新激活的图片
-        _updateActiveImages();
+        // 移除图片组管理器初始化2
 
         // 强制重新构建以显示覆盖层
         setState(() {});
@@ -1173,7 +895,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 计算覆盖层结尾位置，使用与覆盖层结尾大按钮相同的算法
     final totalWeight = _totalScore; // 使用数据库中的积分值
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     final coveredButtons = (totalWeight / weightPerButton).floor();
     final remainingWeight = totalWeight % weightPerButton;
 
@@ -1333,201 +1055,82 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     );
   }
 
-  // 重置按钮位置
-  Future<void> _resetButtonPositions() async {
-    try {
-      // 清除本地存储
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_storageKey);
 
-      // 清空当前按钮列表
-      _radioButtons.clear();
-      setState(() {});
 
-      // 重新生成按钮位置
-      _generateRandomRadioButtons();
-    } catch (e) {
-      print('重置按钮位置失败: $e');
-    }
-  }
+  // 滚动到大按钮位置
+  Future<void> _scrollToEndButton() async {
+    if (!_scrollController.hasClients || _radioButtons.isEmpty) return;
 
-  // 增加用户积分
-  Future<void> _addUserScore(int points, String description) async {
-    if (_currentUser == null) return;
+    // 计算大按钮的位置
+    final endPosition = _calculateEndButtonPosition();
+    
+    // 计算滚动位置（让大按钮在屏幕中央）
+    final screenHeight = MediaQuery.of(context).size.height;
+    final scrollOffset = endPosition.dy - screenHeight / 2;
 
-    try {
-      // 计算新的总积分
-      final newTotalScore = _totalScore + points;
+    // 确保滚动位置在有效范围内
+    final maxScrollExtent = _scrollController.position.maxScrollExtent;
+    final clampedOffset = scrollOffset.clamp(0.0, maxScrollExtent);
 
-      // 检查积分下限，不能为负数
-      if (newTotalScore < 0) {
-        print('积分不能为负数，当前积分: $_totalScore, 尝试减少: $points');
-        return;
-      }
-
-      // 添加积分记录
-      await _databaseHelper.insertUserScore(
-        UserScore(
-          userId: _currentUser!.id!,
-          score: points,
-          description: description,
-          earnedAt: DateTime.now(),
-        ),
-      );
-
-      // 更新总积分
-      final updatedTotalScore = await _databaseHelper.getTotalUserScore(
-        _currentUser!.id!,
-      );
-
-      // 检查并解锁成就
-      await _checkAndUnlockAchievements();
-
-      // 触发按钮动画
-      _triggerButtonAnimation();
-
-      // 刷新UI以反映新的覆盖层长度
-      setState(() {
-        _totalScore = updatedTotalScore;
-      });
-
-      // 检测新激活的按钮并创建粒子效果
-      _detectNewlyActivatedButtons();
-
-      print(
-        '积分已${points >= 0 ? "增加" : "减少"}: ${points >= 0 ? "+" : ""}$points ($description), 总积分: $_totalScore',
-      );
-    } catch (e) {
-      print('${points >= 0 ? "增加" : "减少"}积分失败: $e');
-    }
-  }
-
-  // 检查并解锁成就
-  Future<void> _checkAndUnlockAchievements() async {
-    if (_currentUser == null) return;
-
-    try {
-      // 积分相关成就
-      if (_totalScore >= 100 && _totalScore < 200) {
-        await _databaseHelper.unlockAchievement(
-          _currentUser!.id!,
-          '积分新手',
-          '获得100积分',
-          '🎯',
-        );
-      } else if (_totalScore >= 500 && _totalScore < 1000) {
-        await _databaseHelper.unlockAchievement(
-          _currentUser!.id!,
-          '积分达人',
-          '获得500积分',
-          '🏆',
-        );
-      } else if (_totalScore >= 1000) {
-        await _databaseHelper.unlockAchievement(
-          _currentUser!.id!,
-          '积分大师',
-          '获得1000积分',
-          '👑',
-        );
-      }
-
-      // 按钮点击相关成就
-      final activeButtonsCount = _radioButtons.where((btn) {
-        final buttonIndex = _radioButtons.indexOf(btn);
-        final totalWeight = _totalScore;
-        final weightPerButton = 100;
-        final coveredButtons = (totalWeight / weightPerButton).floor();
-        final remainingWeight = totalWeight % weightPerButton;
-        return buttonIndex < coveredButtons ||
-            (buttonIndex == coveredButtons && remainingWeight > 0);
-      }).length;
-
-      if (activeButtonsCount >= 5) {
-        await _databaseHelper.unlockAchievement(
-          _currentUser!.id!,
-          '探索者',
-          '激活5个按钮',
-          '🔍',
-        );
-      }
-
-      if (activeButtonsCount >= 10) {
-        await _databaseHelper.unlockAchievement(
-          _currentUser!.id!,
-          '冒险家',
-          '激活10个按钮',
-          '🗺️',
-        );
-      }
-    } catch (e) {
-      print('检查成就失败: $e');
-    }
+    // 执行滚动动画
+    await _scrollController.animateTo(
+      clampedOffset,
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GestureDetector(
-        onTap: () {
-          // 点击其他位置收起气泡
-          if (_activeBubbleButtonId != null) {
-            setState(() {
-              _activeBubbleButtonId = null;
-            });
-          }
-          // 重置大按钮气泡显示状态
-          if (!_showEndButtonBubble) {
-            setState(() {
-              _showEndButtonBubble = true;
-            });
-          }
-        },
-        child: Stack(
+      body: Stack(
           children: [
             LayoutBuilder(
               builder: (context, constraints) {
                 // 获取响应式尺寸
                 final screenWidth = constraints.maxWidth;
                 final screenHeight = constraints.maxHeight;
-                final containerHeight = _configService.containerHeight;
+                final containerHeight = 7000; // 调整容器高度以适应20个按钮
                 final bottomPadding = 220.0; // 减少底部垫高到220像素
                 final totalHeight =
                     screenHeight + containerHeight + bottomPadding;
 
                 return SingleChildScrollView(
                   controller: _scrollController,
-                  child: Container(
+                  child: SizedBox(
                     width: screenWidth,
                     height: totalHeight,
                     child: Stack(
                       children: [
-                        // 动态背景图片层
-                        ..._buildBackgroundImages(),
-                        // 贝塞尔曲线连接线
-                        CustomPaint(
-                          size: Size(screenWidth, totalHeight),
-                          painter: BezierCurvePainter(_radioButtons),
+                        // 贝塞尔曲线连接线 - 添加IgnorePointer确保不拦截点击事件
+                        IgnorePointer(
+                          child: CustomPaint(
+                            size: Size(screenWidth, totalHeight),
+                            painter: BezierCurvePainter(_radioButtons),
+                          ),
                         ),
-                        // 贝塞尔曲线覆盖层
-                        AnimatedBuilder(
-                          animation: _overlayAnimationController,
-                          builder: (context, child) {
-                            // 计算动画中的积分值
-                            final animatedScore =
-                                _overlayAnimationController.isAnimating
-                                ? _previousTotalScore +
-                                      (_totalScore - _previousTotalScore) *
-                                          _overlayProgressAnimation.value
-                                : _totalScore;
+                        // 贝塞尔曲线覆盖层 - 添加IgnorePointer确保不拦截点击事件
+                        IgnorePointer(
+                          child: AnimatedBuilder(
+                            animation: _overlayAnimationController,
+                            builder: (context, child) {
+                              // 计算动画中的积分值
+                              final animatedScore =
+                                  _overlayAnimationController.isAnimating
+                                  ? _previousTotalScore +
+                                        (_totalScore - _previousTotalScore) *
+                                            _overlayProgressAnimation.value
+                                  : _totalScore;
 
-                            return CustomPaint(
-                              size: Size(screenWidth, totalHeight),
-                              painter: BezierCurveOverlayPainter(
-                                _radioButtons,
-                                animatedScore.round(),
-                              ),
-                            );
-                          },
+                              return CustomPaint(
+                                size: Size(screenWidth, totalHeight),
+                                painter: BezierCurveOverlayPainter(
+                                  _radioButtons,
+                                  animatedScore.round(),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                         // 随机分布的单选按钮
                         ..._radioButtons.map(
@@ -1539,18 +1142,20 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                         _buildBubbleForEndButton(),
                         // 激活按钮的气泡
                         _buildActiveButtonBubble(),
-                        // 粒子效果
-                        AnimatedBuilder(
-                          animation: _particleAnimationController,
-                          builder: (context, child) {
-                            // 更新粒子
-                            _updateParticles(0.016); // 约60fps
+                        // 粒子效果 - 添加IgnorePointer确保不拦截点击事件
+                        IgnorePointer(
+                          child: AnimatedBuilder(
+                            animation: _particleAnimationController,
+                            builder: (context, child) {
+                              // 更新粒子
+                              _updateParticles(0.016); // 约60fps
 
-                            return CustomPaint(
-                              size: Size(screenWidth, totalHeight),
-                              painter: ParticlePainter(_particles),
-                            );
-                          },
+                              return CustomPaint(
+                                size: Size(screenWidth, totalHeight),
+                                painter: ParticlePainter(_particles),
+                              );
+                            },
+                          ),
                         ),
                         // 底部垫高容器，确保第一个按钮不被遮挡
                         Positioned(
@@ -1568,97 +1173,39 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                 );
               },
             ),
-            // 重置按钮
+            // 积分显示 - 右上角
             Positioned(
-              top: 50,
-              right: 20,
-              child: FloatingActionButton(
-                onPressed: _resetButtonPositions,
-                backgroundColor: Colors.red[700],
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.refresh),
-              ),
-            ),
-            // 增加积分按钮
-            Positioned(
-              top: 120,
-              right: 20,
-              child: FloatingActionButton(
-                onPressed: () => _addUserScore(10, '手动增加'),
-                backgroundColor: Colors.green[700],
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.add),
-              ),
-            ),
-            // 减少积分按钮
-            Positioned(
-              top: 190,
-              right: 20,
-              child: FloatingActionButton(
-                onPressed: () => _addUserScore(-10, '手动减少'),
-                backgroundColor: Colors.red[700],
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.remove),
-              ),
-            ),
-            // 显示当前积分
-            Positioned(
-              top: 260,
-              right: 20,
+              top: 50, // 距离顶部50像素
+              right: 20, // 距离右边20像素
               child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.blue[700],
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.transparent, // 透明背景
                 ),
                 child: Text(
                   '积分: $_totalScore',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    color: Colors.red[700], // 主题红色
+                    fontSize: 20, // 增大字体到20像素
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
             ),
-            // 测试设置头像按钮
+            // 浮动定位按钮
             Positioned(
-              top: 330,
+              bottom: 30,
               right: 20,
               child: FloatingActionButton(
-                onPressed: () => setUserAvatar(
-                  '/storage/emulated/0/DCIM/Camera/IMG_20241201_123456.jpg',
-                ),
-                backgroundColor: Colors.purple[700],
+                onPressed: _scrollToEndButton,
+                backgroundColor: Colors.red[700],
                 foregroundColor: Colors.white,
-                child: const Icon(Icons.person),
-              ),
-            ),
-            // 增加100积分按钮（测试动画）
-            Positioned(
-              top: 400,
-              right: 20,
-              child: FloatingActionButton(
-                onPressed: () => _addUserScore(100, '测试增加100'),
-                backgroundColor: Colors.teal[700],
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.add_circle),
-              ),
-            ),
-            // 减少100积分按钮（测试动画）
-            Positioned(
-              top: 470,
-              right: 20,
-              child: FloatingActionButton(
-                onPressed: () => _addUserScore(-100, '测试减少100'),
-                backgroundColor: Colors.deepOrange[700],
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.remove_circle),
+                child: const Icon(Icons.my_location),
+                tooltip: '定位到当前进度',
               ),
             ),
           ],
         ),
-      ),
     );
   }
 
@@ -1670,7 +1217,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 计算覆盖层是否经过此按钮
     final totalWeight = _totalScore; // 使用数据库中的积分值
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     final coveredButtons = (totalWeight / weightPerButton).floor();
     final remainingWeight = totalWeight % weightPerButton;
     final isInOverlay =
@@ -1679,47 +1226,68 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 判断按钮是否激活：用户手动选择或覆盖层经过
     final isActive = _selectedValue == radioData.value || isInOverlay;
+    
+    // 调试信息：只打印前几个按钮的状态
+    if (buttonIndex < 5) {
+      print('按钮状态调试: ID=${radioData.id}, Index=$buttonIndex, isInOverlay=$isInOverlay, isActive=$isActive, totalScore=$_totalScore');
+      print('按钮位置: (${radioData.position.dx.toStringAsFixed(1)}, ${radioData.position.dy.toStringAsFixed(1)})');
+    }
 
     return Positioned(
       left: radioData.position.dx - buttonSize / 2, // 居中定位
       top: radioData.position.dy - buttonSize / 2, // 居中定位
-      child: GestureDetector(
-        onTap: isActive
-            ? () {
-                setState(() {
-                  _selectedValue = radioData.value;
-                  // 切换气泡显示状态
-                  if (_activeBubbleButtonId == radioData.value) {
-                    _activeBubbleButtonId = null; // 如果已经显示，则隐藏
-                  } else {
-                    _activeBubbleButtonId = radioData.value; // 否则显示气泡
-                  }
-                });
-              }
-            : null, // 未激活时禁用点击事件
-        child: Container(
-          width: buttonSize,
-          height: buttonSize,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isActive
-                ? Color(0xFFFFF8DC) // 激活时淡金色填充（偏白色）
-                : Colors.white, // 未激活时白色填充
-            border: Border.all(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isActive
+              ? () {
+                  print('按钮被点击: ID=${radioData.id}, Value=${radioData.value}, isActive=$isActive');
+                  setState(() {
+                    _selectedValue = radioData.value;
+                    // 切换气泡显示状态
+                    if (_activeBubbleButtonId == radioData.id) {
+                      print('隐藏气泡: 按钮ID=${radioData.id}');
+                      _activeBubbleButtonId = null; // 如果已经显示，则隐藏
+                    } else {
+                      print('显示气泡: 按钮ID=${radioData.id}');
+                      _activeBubbleButtonId = radioData.id; // 否则显示气泡
+                    }
+                    print('当前激活气泡按钮ID: $_activeBubbleButtonId');
+                  });
+                }
+              : null, // 未激活时禁用点击事件
+          borderRadius: BorderRadius.circular(buttonSize / 2),
+          child: Container(
+            width: buttonSize,
+            height: buttonSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
               color: isActive
-                  ? Colors
-                        .red // 激活时红色边框
-                  : Colors.grey.withOpacity(0.5), // 未激活时50%灰色边框
-              width: 2.0, // 2像素边框
+                  ? Colors.red[50] // 激活时淡红色填充
+                  : Colors.white, // 未激活时白色填充
+              border: Border.all(
+                color: isActive
+                    ? Colors.red // 激活时红色边框
+                    : Colors.grey.withOpacity(0.5), // 未激活时50%灰色边框
+                width: isActive ? 3.0 : 2.0, // 激活时更粗的边框以便识别
+              ),
+              // 添加阴影让按钮更明显
+              boxShadow: isActive ? [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.3),
+                  blurRadius: 6.0,
+                  spreadRadius: 1.0,
+                ),
+              ] : null,
             ),
+            child: isActive
+                ? Icon(
+                    Icons.flag, // 小旗帜图标
+                    size: buttonSize * 0.6,
+                    color: Colors.red, // 红色旗帜
+                  )
+                : null, // 未选中时不显示图标
           ),
-          child: isActive
-              ? Icon(
-                  Icons.flag, // 小旗帜图标
-                  size: buttonSize * 0.6,
-                  color: Colors.red, // 红色旗帜
-                )
-              : null, // 未选中时不显示图标
         ),
       ),
     );
@@ -1734,7 +1302,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 计算覆盖层结尾位置
     final totalWeight = _totalScore; // 使用数据库中的积分值
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     final coveredButtons = (totalWeight / weightPerButton).floor();
     final remainingWeight = totalWeight % weightPerButton;
     final remainingRatio = remainingWeight / weightPerButton;
@@ -1901,7 +1469,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                 // 如果重叠，隐藏大按钮气泡，显示小按钮气泡
                 setState(() {
                   _showEndButtonBubble = false;
-                  _activeBubbleButtonId = overlappingButton.value;
+                  _activeBubbleButtonId = overlappingButton.id;
                 });
               } else {
                 // 如果没有重叠，切换大按钮气泡显示状态
@@ -1954,17 +1522,33 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
   // 构建激活按钮的气泡
   Widget _buildActiveButtonBubble() {
-    if (_activeBubbleButtonId == null) return Container();
+    print('构建激活按钮气泡: _activeBubbleButtonId=$_activeBubbleButtonId');
+    if (_activeBubbleButtonId == null) {
+      print('没有激活的气泡按钮，返回空容器');
+      return Container();
+    }
 
     // 找到当前激活气泡的按钮
     final activeButton = _radioButtons.firstWhere(
-      (btn) => btn.value == _activeBubbleButtonId,
+      (btn) => btn.id == _activeBubbleButtonId,
       orElse: () => _radioButtons.first,
     );
+    print('找到激活按钮: ID=${activeButton.id}');
+
+    // 检查配置服务状态
+    print('配置服务是否已加载: ${_buttonConfigService.isLoaded}');
+
+    // 获取按钮的描述文本
+    final buttonDescription = _buttonConfigService.getDescriptionById(activeButton.id);
+    if (buttonDescription == null) {
+      print('未找到按钮 ${activeButton.id} 的描述，不显示气泡');
+      return Container();
+    }
+    print('找到按钮描述: ${buttonDescription.title} - ${buttonDescription.description}');
 
     final buttonSize = 30.0;
     final screenWidth = MediaQuery.of(context).size.width;
-    final bubbleWidth = 120.0; // 调整宽度适应5字符换行
+    final bubbleWidth = 200.0; // 增加宽度以适应更长的文本
     final margin = 8.0;
 
     // 计算气泡位置
@@ -1984,43 +1568,83 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     // 确保不超出边界
     bubbleLeft = bubbleLeft.clamp(5.0, screenWidth - bubbleWidth - 5.0);
 
-    // 将文本按每行5个字符进行换行
-    String formatTextWithLineBreaks(String text) {
-      final buffer = StringBuffer();
-      for (int i = 0; i < text.length; i += 5) {
-        if (i > 0) buffer.write('\n');
-        final end = (i + 5 < text.length) ? i + 5 : text.length;
-        buffer.write(text.substring(i, end));
-      }
-      return buffer.toString();
-    }
-
     return Positioned(
       left: bubbleLeft,
-      top: activeButton.position.dy - 40, // 调整位置以适应多行文本
+      top: activeButton.position.dy - 60, // 调整位置以适应更多文本
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        width: bubbleWidth,
         decoration: BoxDecoration(
-          color: Colors.white, // 白色背景
+          color: Colors.white,
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
+          border: Border.all(color: Colors.red.withOpacity(0.3), width: 1),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
-              blurRadius: 6,
-              offset: Offset(0, 3),
+              blurRadius: 8,
+              offset: Offset(0, 4),
             ),
           ],
         ),
-        child: Text(
-          formatTextWithLineBreaks("现在的这里已经发生了很大的变化..."),
-          style: TextStyle(
-            color: Colors.grey[700], // 灰色文字
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            height: 1.3, // 行高
-          ),
-          textAlign: TextAlign.left,
+        child: Stack(
+          children: [
+            // 主要内容
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 40, 12), // 右侧留出关闭按钮空间
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 标题
+                  Text(
+                    buttonDescription.title,
+                    style: TextStyle(
+                      color: Colors.red[700],
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  // 描述
+                  Text(
+                    buttonDescription.description,
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // 关闭按钮
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    print('气泡关闭按钮被点击');
+                    setState(() {
+                      _activeBubbleButtonId = null;
+                    });
+                  },
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    child: Icon(
+                      Icons.close,
+                      size: 16,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2032,7 +1656,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 计算覆盖层结尾位置 - 复用大按钮的位置计算逻辑
     final totalWeight = _totalScore; // 使用数据库中的积分值
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     final coveredButtons = (totalWeight / weightPerButton).floor();
     final remainingWeight = totalWeight % weightPerButton;
     final remainingRatio = remainingWeight / weightPerButton;
@@ -2083,7 +1707,6 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       left: bubbleLeft,
       top: endPosition.dy - 20, // 按钮中心偏上
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white, // 白色背景
           borderRadius: BorderRadius.circular(20),
@@ -2096,13 +1719,48 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
             ),
           ],
         ),
-        child: Text(
-          "你到这里了",
-          style: TextStyle(
-            color: Colors.grey[700], // 灰色文字
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+        child: Stack(
+          children: [
+            // 主要内容
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 10, 40, 10), // 右侧留出关闭按钮空间
+              child: Text(
+                "你到这里了",
+                style: TextStyle(
+                  color: Colors.grey[700], // 灰色文字
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            // 关闭按钮
+            Positioned(
+              top: 2,
+              right: 2,
+              child: Material(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () {
+                    print('大按钮气泡关闭按钮被点击');
+                    setState(() {
+                      _showEndButtonBubble = false;
+                    });
+                  },
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2166,7 +1824,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 定义彩色粒子颜色数组
     final colors = [
-      Color(0xFFFFD700), // 金色
+      Colors.red[400]!, // 红色
       Color(0xFFFF6B35), // 橙色
       Color(0xFFFF1493), // 深粉色
       Color(0xFF00CED1), // 深青色
@@ -2231,7 +1889,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   // 检测新激活的按钮
   void _detectNewlyActivatedButtons() {
     final totalWeight = _totalScore;
-    final weightPerButton = 100;
+    final weightPerButton = 500; // 调整权重以适应20个按钮
     final coveredButtons = (totalWeight / weightPerButton).floor();
     final remainingWeight = totalWeight % weightPerButton;
 
@@ -2263,27 +1921,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
     // 更新已激活按钮集合
     _activatedButtonIndices.addAll(newlyActivated);
 
-    // 将新激活的图片添加到对应的组
-    for (final buttonIndex in newlyActivated) {
-      if (buttonIndex < _radioButtons.length) {
-        final button = _radioButtons[buttonIndex];
-        final buttonConfig = _configService.getButtonConfigById(button.id);
-        if (buttonConfig != null) {
-          print(
-            '添加图片到组: 按钮 ${button.id}, 组 ${buttonConfig.imageGroupId}, 图片 ${buttonConfig.fullImagePath}',
-          );
-          _imageGroupManager.addImageToGroup(
-            buttonConfig.imageGroupId,
-            buttonConfig.fullImagePath,
-          );
-        } else {
-          print('按钮 ${button.id} 没有找到配置');
-        }
-      }
-    }
-
-    // 更新激活的图片
-    _updateActiveImages();
+    // 移除图片组相关逻辑
   }
 
   // 积分变化监听器
@@ -2738,7 +2376,7 @@ class BezierCurveOverlayPainter extends CustomPainter {
 
     // 权重控制参数
     final totalWeight = totalScore; // 使用传入的积分值
-    final weightPerButton = 100; // 每个按钮之间的权重
+    final weightPerButton = 500; // 调整权重以适应20个按钮 // 每个按钮之间的权重
     int remainingWeight = totalWeight; // 剩余权重
 
     // 从第一个按钮开始绘制
@@ -2747,7 +2385,7 @@ class BezierCurveOverlayPainter extends CustomPainter {
 
     // 遍历所有按钮，根据权重决定覆盖长度
     for (int i = 1; i < radioButtons.length; i++) {
-      // 每经过一个按钮，权重减100
+      // 每经过一个按钮，权重减500
       remainingWeight -= weightPerButton;
 
       // 如果权重不足，计算等比覆盖
