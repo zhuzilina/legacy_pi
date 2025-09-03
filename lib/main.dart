@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'pages/home_page.dart';
 import 'services/global_state.dart';
+import 'config/api_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 初始化全局状态
   await GlobalState().initialize();
+  
+  // 打印API配置信息
+  ApiConfig.printConfig();
 
   runApp(const RedCultureApp());
 }

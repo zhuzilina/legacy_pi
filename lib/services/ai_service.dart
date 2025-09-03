@@ -1,0 +1,150 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'dart:collection';
+import 'package:flutter/foundation.dart';
+import 'unified_cache_service.dart';
+import '../config/api_config.dart';
+
+class AiService {
+  // 使用统一的API配置
+  static String get _baseUrl => ApiConfig.aiBaseUrl;
+  final UnifiedCacheService _cacheService = UnifiedCacheService();
+  
+  /// 从缓存获取结果
+  AiInterpretationResponse? _getFromCache(String text, String promptType, String? customPrompt) {
+    final cached = _cacheService.getAiCache(text, promptType, customPrompt);
+    
+    if (cached != null) {
+      print('AI解读缓存命中');
+      return cached as AiInterpretationResponse;
+    }
+    
+    print('AI解读缓存未命中');
+    return null;
+  }
+  
+  /// 添加到缓存
+  void _addToCache(String text, String promptType, String? customPrompt, AiInterpretationResponse response) {
+    _cacheService.setAiCache(text, promptType, customPrompt, response);
+    print('AI解读结果已缓存');
+  }
+  
+  /// 调用AI解读API（带缓存）
+  Future<AiInterpretationResponse?> interpretText({
+    required String text,
+    String promptType = 'educational',
+    String? customPrompt,
+    int maxTokens = 2000,
+  }) async {
+    try {
+      // 首先尝试从缓存获取
+      final cachedResponse = _getFromCache(text, promptType, customPrompt);
+      if (cachedResponse != null) {
+        return cachedResponse;
+      }
+      
+      print('AI服务调用 - 文本长度: ${text.length}, 最大tokens: $maxTokens');
+      
+      final response = await http.post(
+        Uri.parse('$_baseUrl/interpret/'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'text': text,
+          'prompt_type': promptType,
+          if (customPrompt != null) 'custom_prompt': customPrompt,
+          'max_tokens': maxTokens,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print('AI解读API响应成功 - 响应长度: ${response.body.length}');
+        final result = AiInterpretationResponse.fromJson(data);
+        
+        // 如果成功获取结果，添加到缓存
+        if (result.success && result.data != null) {
+          _addToCache(text, promptType, customPrompt, result);
+          print('AI解读结果长度: ${result.data!.interpretation.length}');
+        }
+        
+        return result;
+      } else {
+        print('AI解读API请求失败: ${response.statusCode}');
+        print('响应内容: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('AI解读API调用异常: $e');
+      return null;
+    }
+  }
+  
+  /// 清空缓存
+  void clearCache() {
+    _cacheService.clearAllCache();
+    print('AI解读缓存已清空');
+  }
+  
+  /// 获取缓存统计信息
+  Map<String, dynamic> getCacheStats() {
+    return _cacheService.getCacheStats();
+  }
+  
+  /// 从缓存中移除特定条目
+  void removeFromCache(String text, String promptType, String? customPrompt) {
+    _cacheService.clearTextCache(text);
+    print('AI解读缓存条目已移除');
+  }
+}
+
+/// AI解读响应数据模型
+class AiInterpretationResponse {
+  final bool success;
+  final AiInterpretationData? data;
+  final String? error;
+
+  AiInterpretationResponse({
+    required this.success,
+    this.data,
+    this.error,
+  });
+
+  factory AiInterpretationResponse.fromJson(Map<String, dynamic> json) {
+    return AiInterpretationResponse(
+      success: json['success'] ?? false,
+      data: json['data'] != null 
+          ? AiInterpretationData.fromJson(json['data']) 
+          : null,
+      error: json['error'],
+    );
+  }
+}
+
+/// AI解读数据模型
+class AiInterpretationData {
+  final String interpretation;
+  final String modelUsed;
+  final String promptType;
+  final int tokensUsed;
+  final int originalTextLength;
+
+  AiInterpretationData({
+    required this.interpretation,
+    required this.modelUsed,
+    required this.promptType,
+    required this.tokensUsed,
+    required this.originalTextLength,
+  });
+
+  factory AiInterpretationData.fromJson(Map<String, dynamic> json) {
+    return AiInterpretationData(
+      interpretation: json['interpretation'] ?? '',
+      modelUsed: json['model_used'] ?? '',
+      promptType: json['prompt_type'] ?? '',
+      tokensUsed: json['tokens_used'] ?? 0,
+      originalTextLength: json['original_text_length'] ?? 0,
+    );
+  }
+}

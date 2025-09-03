@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/article.dart';
+import 'package:flutter/foundation.dart';
+import '../config/api_config.dart';
 
 class NewsApiService {
-  static const String baseUrl = 'http://127.0.0.1:8000/api/crawler';
+  // 使用统一的API配置
+  static String get baseUrl => ApiConfig.crawlerBaseUrl;
   
   // 单例模式
   static final NewsApiService _instance = NewsApiService._internal();

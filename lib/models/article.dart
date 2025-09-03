@@ -1,4 +1,5 @@
 import 'content_item.dart';
+import '../config/api_config.dart';
 
 class ArticleListResponse {
   final String msg;
@@ -286,7 +287,8 @@ class Article {
   
   // 转换图片URL为完整URL
   String _convertImageUrl(String originalUrl) {
-    const baseUrl = 'http://127.0.0.1:8000';
+    // 使用统一的API配置
+    final baseUrl = ApiConfig.baseUrl;
     
     // 如果已经是完整URL，直接返回
     if (originalUrl.startsWith('http')) {
@@ -299,5 +301,71 @@ class Article {
     }
     
     return originalUrl;
+  }
+  
+  /// 清理Markdown格式标记，返回纯文本
+  static String cleanMarkdownForTts(String markdownText) {
+    if (markdownText.isEmpty) return '';
+    
+    String cleanedText = markdownText;
+    
+    // 移除标题标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'^#{1,6}\s+', multiLine: true), '');
+    
+    // 移除粗体标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'\*\*([^*]+)\*\*'), r'$1');
+    
+    // 移除斜体标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'\*([^*]+)\*'), r'$1');
+    
+    // 移除删除线标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'~~([^~]+)~~'), r'$1');
+    
+    // 移除行内代码标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'`([^`]+)`'), r'$1');
+    
+    // 移除代码块标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'```[\s\S]*?```', multiLine: true), '');
+    
+    // 移除链接标记，保留链接文本
+    cleanedText = cleanedText.replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1');
+    
+    // 移除图片标记，保留图片描述
+    cleanedText = cleanedText.replaceAllMapped(RegExp(r'!\[([^\]]*)\]\([^)]+\)'), (match) {
+      final altText = match.group(1) ?? '';
+      return altText.isNotEmpty ? '图片：$altText' : '';
+    });
+    
+    // 移除引用标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'^>\s+', multiLine: true), '');
+    
+    // 移除列表标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'^[\s]*[-*+]\s+', multiLine: true), '');
+    cleanedText = cleanedText.replaceAll(RegExp(r'^[\s]*\d+\.\s+', multiLine: true), '');
+    
+    // 移除任务列表标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'^[\s]*[-*+]\s+\[[ xX]\]\s+', multiLine: true), '');
+    
+    // 移除表格标记
+    cleanedText = cleanedText.replaceAll(RegExp(r'^\|.*\|$', multiLine: true), '');
+    cleanedText = cleanedText.replaceAll(RegExp(r'^[-|:]+$', multiLine: true), '');
+    
+    // 移除水平分割线
+    cleanedText = cleanedText.replaceAll(RegExp(r'^[-*_]{3,}$', multiLine: true), '');
+    
+    // 移除HTML标签
+    cleanedText = cleanedText.replaceAll(RegExp(r'<[^>]+>'), '');
+    
+    // 清理多余的空行和空格
+    cleanedText = cleanedText
+        .replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n') // 多个空行变为两个
+        .replaceAll(RegExp(r'^\s+', multiLine: true), '') // 行首空格
+        .replaceAll(RegExp(r'\s+$', multiLine: true), '') // 行尾空格
+        .trim();
+    
+    // 确保段落之间有适当的间隔
+    cleanedText = cleanedText.replaceAll(RegExp(r'\n\s*\n'), '\n\n');
+    
+    return cleanedText;
   }
 }
