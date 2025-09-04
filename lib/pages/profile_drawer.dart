@@ -5,6 +5,10 @@ import '../database/database_helper.dart';
 import '../models/user.dart';
 import '../models/user_score.dart';
 import '../models/achievement.dart';
+import '../models/chat_record.dart';
+import '../services/chat_record_service.dart';
+import '../models/article.dart';
+import '../pages/chat_page.dart';
 
 class ProfileDrawer extends StatefulWidget {
   final VoidCallback? onScoreUpdated;
@@ -50,6 +54,84 @@ class _ProfileDrawerState extends State<ProfileDrawer>
       }
     } catch (e) {
       print('加载用户数据失败: $e');
+    }
+  }
+
+  // 刷新聊天记录
+  void _refreshChatRecords() {
+    setState(() {});
+  }
+  
+  // 格式化时间
+  String _formatTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}天前';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}小时前';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}分钟前';
+    } else {
+      return '刚刚';
+    }
+  }
+  
+  // 继续对话
+  void _continueChat(ChatRecord record) {
+    // 创建Article对象
+    final article = Article(
+      id: record.chatKey,
+      title: record.title,
+      source: '学习记录',
+      publishTime: record.lastUpdated.toIso8601String(),
+      category: '学习记录',
+      wordCount: record.content.length,
+      originalUrl: '',
+      metaInfo: '学习记录',
+      content: record.content,
+      collectTime: record.lastUpdated.toIso8601String(),
+    );
+    
+    // 导航到聊天页面
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatPage(article: article),
+      ),
+    );
+  }
+  
+  // 删除聊天记录
+  Future<void> _deleteChatRecord(ChatRecord record) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除"${record.title}"的学习记录吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await ChatRecordService.deleteChatRecord(record.title);
+      setState(() {});
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已删除"${record.title}"的学习记录')),
+        );
+      }
     }
   }
 
@@ -713,40 +795,117 @@ class _ProfileDrawerState extends State<ProfileDrawer>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '学习记录',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '学习记录',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              TextButton(
+                onPressed: _refreshChatRecords,
+                child: const Text('刷新', style: TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
 
-          _buildRecordItem(
-            icon: Icons.history_edu,
-            title: '最近学习',
-            subtitle: '马克思主义基本原理',
-            time: '2小时前',
-            color: Colors.blue,
-          ),
-
-          _buildRecordItem(
-            icon: Icons.flag,
-            title: '红色文化',
-            subtitle: '延安精神专题',
-            time: '昨天',
-            color: Colors.red,
-          ),
-
-          _buildRecordItem(
-            icon: Icons.quiz,
-            title: '知识测试',
-            subtitle: '理论测试 - 优秀',
-            time: '3天前',
-            color: Colors.green,
+          FutureBuilder<List<ChatRecord>>(
+            future: ChatRecordService.getAllChatRecords(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return const Center(child: Text('加载失败'));
+              }
+              
+              final chatRecords = snapshot.data ?? [];
+              
+              if (chatRecords.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(20),
+                  child: const Center(
+                    child: Text(
+                      '暂无学习记录',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                );
+              }
+              
+              return Column(
+                children: chatRecords.map((record) => _buildChatRecordItem(record)).toList(),
+              );
+            },
           ),
         ],
       ),
     );
   }
 
+  Widget _buildChatRecordItem(ChatRecord record) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.chat, color: Colors.blue, size: 20),
+        ),
+        title: Text(
+          record.title,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          '${record.messageCount}条对话 · ${_formatTime(record.lastUpdated)}',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, size: 20),
+          onSelected: (value) {
+            if (value == 'continue') {
+              _continueChat(record);
+            } else if (value == 'delete') {
+              _deleteChatRecord(record);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'continue',
+              child: Row(
+                children: [
+                  Icon(Icons.chat, size: 16),
+                  SizedBox(width: 8),
+                  Text('继续对话'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete, size: 16),
+                  SizedBox(width: 8),
+                  Text('删除记录'),
+                ],
+              ),
+            ),
+          ],
+        ),
+        onTap: () => _continueChat(record),
+      ),
+    );
+  }
+  
   Widget _buildRecordItem({
     required IconData icon,
     required String title,

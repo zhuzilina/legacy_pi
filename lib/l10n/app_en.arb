@@ -1,0 +1,228 @@
+{
+  "@@locale": "en",
+  "appTitle": "Legacy Pi",
+  "@appTitle": {
+    "description": "The title of the application"
+  },
+  
+  "news": "News",
+  "@news": {
+    "description": "News category tab"
+  },
+  
+  "spirit": "Spirit",
+  "@spirit": {
+    "description": "Spirit category tab"
+  },
+  
+  "people": "People",
+  "@people": {
+    "description": "People category tab"
+  },
+  
+  "partyHistory": "Party History",
+  "@partyHistory": {
+    "description": "Party history category tab"
+  },
+  
+  "loading": "Loading",
+  "@loading": {
+    "description": "Loading text"
+  },
+  
+  "loadingContent": "Loading {category} content...",
+  "@loadingContent": {
+    "description": "Loading content for specific category",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "loadFailed": "Load Failed",
+  "@loadFailed": {
+    "description": "Load failed title"
+  },
+  
+  "loadError": "Error loading content: {error}",
+  "@loadError": {
+    "description": "Error message when loading fails",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "retry": "Retry",
+  "@retry": {
+    "description": "Retry button text"
+  },
+  
+  "noContent": "No {category} Content",
+  "@noContent": {
+    "description": "No content message for specific category",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "noContentDescription": "Currently no {category} content available",
+  "@noContentDescription": {
+    "description": "Description when no content is available",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "refresh": "Refresh",
+  "@refresh": {
+    "description": "Refresh button text"
+  },
+  
+  "viewMore": "View More",
+  "@viewMore": {
+    "description": "View more button text"
+  },
+  
+  "source": "Source: {source}",
+  "@source": {
+    "description": "Source information",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "studyFullText": "Study\nFull Text",
+  "@studyFullText": {
+    "description": "Study full text button"
+  },
+  
+  "summarizeKeyPoints": "Summarize\nKey Points",
+  "@summarizeKeyPoints": {
+    "description": "Summarize key points button"
+  },
+  
+  "enterConversation": "Enter\nConversation",
+  "@enterConversation": {
+    "description": "Enter conversation button"
+  },
+  
+  "aiInterpretation": "AI Interpretation",
+  "@aiInterpretation": {
+    "description": "AI interpretation dialog title"
+  },
+  
+  "aiInterpreting": "AI Interpreting",
+  "@aiInterpreting": {
+    "description": "AI is interpreting text"
+  },
+  
+  "aiGeneratedContent": "AI Generated Content, Please Use with Caution",
+  "@aiGeneratedContent": {
+    "description": "Warning about AI generated content"
+  },
+  
+  "aiInterpretationFailed": "AI Interpretation Failed",
+  "@aiInterpretationFailed": {
+    "description": "AI interpretation failed message"
+  },
+  
+  "requestError": "Request Error: {error}",
+  "@requestError": {
+    "description": "Request error message",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "articleContent": "Article Content",
+  "@articleContent": {
+    "description": "Article content title"
+  },
+  
+  "autoPlay": "Auto Play",
+  "@autoPlay": {
+    "description": "Auto play setting"
+  },
+  
+  "autoPlayDescription": "Automatically play audio after AI interpretation",
+  "@autoPlayDescription": {
+    "description": "Auto play setting description"
+  },
+  
+  "voiceSelection": "Voice Selection",
+  "@voiceSelection": {
+    "description": "Voice selection setting"
+  },
+  
+  "voiceSelectionDescription": "Select TTS voice tone",
+  "@voiceSelectionDescription": {
+    "description": "Voice selection setting description"
+  },
+  
+  "audioSettings": "Audio Settings",
+  "@audioSettings": {
+    "description": "Audio settings title"
+  },
+  
+  "xiaoxiao": "Xiaoxiao (Female)",
+  "@xiaoxiao": {
+    "description": "Xiaoxiao voice option"
+  },
+  
+  "yunxi": "Yunxi (Male)",
+  "@yunxi": {
+    "description": "Yunxi voice option"
+  },
+  
+  "yunyang": "Yunyang (Male)",
+  "@yunyang": {
+    "description": "Yunyang voice option"
+  },
+  
+  "xiaoyi": "Xiaoyi (Female)",
+  "@xiaoyi": {
+    "description": "Xiaoyi voice option"
+  },
+  
+  "yunjian": "Yunjian (Male)",
+  "@yunjian": {
+    "description": "Yunjian voice option"
+  },
+  
+  "xiaohan": "Xiaohan (Female)",
+  "@xiaohan": {
+    "description": "Xiaohan voice option"
+  },
+  
+  "xiaomo": "Xiaomo (Female)",
+  "@xiaomo": {
+    "description": "Xiaomo voice option"
+  },
+  
+  "xiaoxuan": "Xiaoxuan (Female)",
+  "@xiaoxuan": {
+    "description": "Xiaoxuan voice option"
+  },
+  
+  "xiaoyan": "Xiaoyan (Female)",
+  "@xiaoyan": {
+    "description": "Xiaoyan voice option"
+  },
+  
+  "yunfeng": "Yunfeng (Male)",
+  "@yunfeng": {
+    "description": "Yunfeng voice option"
+  }
+}
+

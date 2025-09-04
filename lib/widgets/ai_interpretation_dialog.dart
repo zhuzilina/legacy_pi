@@ -3,9 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/models/article.dart';
 import 'package:legacy_pi/services/ai_service.dart';
-import 'package:legacy_pi/services/markdown_parser_service.dart';
+
 import 'package:legacy_pi/services/tts_service.dart';
 import 'package:legacy_pi/services/unified_cache_service.dart';
+import '../pages/chat_page.dart';
 
 /// AI解读对话框Widget
 class AiInterpretationDialog extends StatefulWidget {
@@ -36,7 +37,6 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
   bool _isPaused = false; // 新增：是否处于暂停状态
   String _currentTime = '00:00'; // 当前播放时间
   final TtsService _ttsService = TtsService();
-  final MarkdownParserService _markdownParser = MarkdownParserService();
   
 
 
@@ -832,66 +832,80 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
+    return Material(
+      type: MaterialType.transparency,
       child: Container(
         width: double.infinity,
-        height: _isLoading 
-            ? MediaQuery.of(context).size.height * 0.3  // 加载时使用更小高度
-            : MediaQuery.of(context).size.height * 0.85, // 加载完成后使用正常高度
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Colors.white,
-        ),
-        child: Column(
-          children: [
-            // 对话框头部
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
+        height: double.infinity,
+        color: Colors.black54,
+        child: Center(
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: _isLoading 
+                ? MediaQuery.of(context).size.height * 0.3  // 加载时使用更小高度
+                : MediaQuery.of(context).size.height * 0.85, // 加载完成后使用正常高度
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
-              ),
-                    child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isLoading ? 'AI解读中' : widget.article.title,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-
-                      ],
+              ],
+            ),
+            child: Column(
+              children: [
+                // 对话框头部
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: const BoxDecoration(
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: Colors.grey),
-                  ),
-                ],
-              ),
+                        child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isLoading ? 'AI解读中' : widget.article.title,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                ),
+                const Divider(height: 1),
+                // 对话框内容
+                _isLoading
+                    ? _buildLoadingContent()
+                    : Expanded(
+                        child: _buildAiContent(),
+                      ),
+                // 音频播放器覆盖层
+                if (!_isLoading && _aiInterpretation.isNotEmpty)
+                  _buildAudioPlayerOverlay(),
+              ],
             ),
-            const Divider(height: 1),
-            // 对话框内容
-            _isLoading
-                ? _buildLoadingContent()
-                : Expanded(
-                    child: _buildAiContent(),
-                  ),
-            // 音频播放器覆盖层
-            if (!_isLoading && _aiInterpretation.isNotEmpty)
-              _buildAudioPlayerOverlay(),
-          ],
+          ),
         ),
       ),
     );
@@ -976,8 +990,8 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
               ),
             ),
             const SizedBox(height: 16),
-          // 使用Markdown解析服务渲染内容
-          ..._markdownParser.parseMarkdown(_aiInterpretation),
+          // 使用自定义Markdown解析渲染内容，支持"问AI"选项
+          ..._parseMarkdownWithAiOption(_aiInterpretation),
         ],
       ),
     );
@@ -1144,6 +1158,304 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 解析包含行内加粗格式的文本，并返回一个 TextSpan。
+  /// 这是实现富文本效果的核心方法。
+  TextSpan _buildTextSpan(String text, {TextStyle? style}) {
+    final List<TextSpan> children = [];
+    // 使用 '**' 作为分隔符来切分字符串
+    final List<String> parts = text.split('**');
+
+    for (int i = 0; i < parts.length; i++) {
+      String part = parts[i];
+      if (part.isEmpty) continue; // 忽略因连续分隔符产生的空字符串
+
+      // 根据部分在数组中的索引奇偶性来判断是否为加粗
+      // 索引为奇数的部分是被 '**' 包裹的
+      final bool isBold = i % 2 != 0;
+
+      children.add(
+        TextSpan(
+          text: part,
+          // 在基础样式上，如果是加粗部分则覆盖 fontWeight
+          style: style?.copyWith(
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      );
+    }
+
+    // 返回一个包含所有子部分的父 TextSpan
+    return TextSpan(style: style, children: children);
+  }
+
+  /// 解析整个 Markdown 字符串，并返回一个 Widget 列表，支持"问AI"选项和跨行选择
+  List<Widget> _parseMarkdownWithAiOption(String markdownContent) {
+    final List<String> lines = markdownContent.split('\n');
+
+    print('开始解析Markdown，共${lines.length}行'); // 调试输出
+
+    // 构建跨行选择的富文本内容
+    final List<TextSpan> textSpans = [];
+    
+    for (final line in lines) {
+      print('解析行: "$line"'); // 调试输出
+      
+      // 解析四级标题
+      if (line.startsWith('#### ')) {
+        print('发现四级标题: ${line.substring(5)}'); // 调试输出
+        textSpans.add(
+          _buildTextSpan(
+            line.substring(5), // 移除 '#### ' 标记
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+              height: 1.4,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n\n'));
+      }
+      // 解析三级标题
+      else if (line.startsWith('### ')) {
+        print('发现三级标题: ${line.substring(4)}'); // 调试输出
+        textSpans.add(
+          _buildTextSpan(
+            line.substring(4), // 移除 '### ' 标记
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+              height: 1.4,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n\n'));
+      }
+      // 解析二级标题
+      else if (line.startsWith('## ')) {
+        print('发现二级标题: ${line.substring(3)}'); // 调试输出
+        textSpans.add(
+          _buildTextSpan(
+            line.substring(3), // 移除 '## ' 标记
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+              height: 1.4,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n\n'));
+      }
+      // 解析一级标题
+      else if (line.startsWith('# ')) {
+        print('发现一级标题: ${line.substring(2)}'); // 调试输出
+        textSpans.add(
+          _buildTextSpan(
+            line.substring(2), // 移除 '# ' 标记
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+              height: 1.3,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n\n'));
+      }
+      // 解析有序列表（支持嵌套，包括没有空格的情况如"1.文本"）
+      else if (RegExp(r'^\s*\d+\.\s*').hasMatch(line) && line.trim().contains('.')) {
+        final match = RegExp(r'^\s*\d+\.\s*').firstMatch(line)!;
+        final listMarker = line.substring(match.start, match.end); // 提取 "1." 或 "1. " 或 "    1. "
+        final content = line.substring(match.end); // 提取列表内容
+        
+        // 计算缩进级别（通过计算原始行前面的空格数）
+        final leadingSpaces = line.length - line.trimLeft().length;
+        final indentLevel = (leadingSpaces / 4).floor(); // 每4个空格为一级缩进
+        
+        print('发现有序列表项: $listMarker -> $content (缩进级别: $indentLevel)'); // 调试输出
+
+        // 添加缩进空格
+        if (indentLevel > 0) {
+          textSpans.add(TextSpan(text: ' ' * (indentLevel * 4)));
+        }
+        
+        // 添加列表标记
+        textSpans.add(
+          TextSpan(
+            text: listMarker.trim(),
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              color: Colors.black87,
+            ),
+          ),
+        );
+        
+        // 添加内容
+        textSpans.add(
+          _buildTextSpan(
+            content,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              color: Colors.black87,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n'));
+      }
+      // 解析项目符号列表（支持前面有空格的情况，包括嵌套列表）
+      else if (line.trim().startsWith('- ') || line.trim().startsWith('• ') || line.trim().startsWith('* ')) {
+        final trimmedLine = line.trim();
+        final originalMarker = trimmedLine.substring(0, 2); // 提取原始标记 "- " 或 "• " 或 "* "
+        final content = trimmedLine.substring(2); // 提取列表内容
+        
+        // 将项目符号转换为统一的黑色实心圆点
+        final displayMarker = '• '; // 统一显示为黑色实心圆点
+        
+        // 计算缩进级别（通过计算原始行前面的空格数）
+        final leadingSpaces = line.length - line.trimLeft().length;
+        final indentLevel = (leadingSpaces / 4).floor(); // 每4个空格为一级缩进
+        
+        print('发现项目符号列表项: $originalMarker -> $content (缩进级别: $indentLevel, 显示为: $displayMarker)'); // 调试输出
+
+        // 添加缩进空格
+        if (indentLevel > 0) {
+          textSpans.add(TextSpan(text: ' ' * (indentLevel * 4)));
+        }
+        
+        // 添加项目符号
+        textSpans.add(
+          TextSpan(
+            text: displayMarker,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              color: Colors.black87,
+            ),
+          ),
+        );
+        
+        // 添加内容
+        textSpans.add(
+          _buildTextSpan(
+            content,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              color: Colors.black87,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n'));
+      }
+      // 解析普通段落
+      else if (line.trim().isNotEmpty) {
+        print('发现普通段落: $line'); // 调试输出
+        textSpans.add(
+          _buildTextSpan(
+            line,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+              color: Colors.black87,
+            ),
+          ),
+        );
+        textSpans.add(const TextSpan(text: '\n\n'));
+      } else {
+        // 空行
+        textSpans.add(const TextSpan(text: '\n'));
+      }
+    }
+    
+    // 返回一个统一的跨行可选择文本组件
+    return [
+      _buildSelectableTextWithAiOption(
+        TextSpan(
+          children: textSpans,
+          style: const TextStyle(
+            fontSize: 16,
+            height: 1.5,
+            color: Colors.black87,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// 构建带有AI选项的可选择文本
+  Widget _buildSelectableTextWithAiOption(TextSpan textSpan) {
+    return Builder(
+      builder: (context) => SelectableText.rich(
+        textSpan,
+        contextMenuBuilder: (context, editableTextState) {
+          return AdaptiveTextSelectionToolbar(
+            anchors: editableTextState.contextMenuAnchors,
+            children: [
+              // 默认的复制选项
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.copySelection(SelectionChangedCause.toolbar);
+                    editableTextState.hideToolbar();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text('复制'),
+                  ),
+                ),
+              ),
+              // 新增的"问AI"选项
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.hideToolbar();
+                    // 获取用户实际选择的文本
+                    final selectedText = editableTextState.currentTextEditingValue.selection.textInside(
+                      editableTextState.currentTextEditingValue.text,
+                    );
+                    _navigateToChatWithSelectedText(context, selectedText);
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 16),
+                        SizedBox(width: 8),
+                        Text('问AI'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 导航到聊天页面，传递选中的文本
+  void _navigateToChatWithSelectedText(BuildContext context, String selectedText) {
+    // 构建消息参数：选中的文本 + "为我解答"
+    final messageParam = '$selectedText为我解答';
+    
+    // 导航到聊天页面，使用特殊的对话ID来区分"问AI"场景
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          article: widget.article,
+          messageParam: messageParam,
+          conversationId: 'ai_interpretation_${DateTime.now().millisecondsSinceEpoch}', // 使用时间戳确保唯一性
+        ),
       ),
     );
   }

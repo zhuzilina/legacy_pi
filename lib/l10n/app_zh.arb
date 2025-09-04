@@ -1,0 +1,228 @@
+{
+  "@@locale": "zh",
+  "appTitle": "传承派",
+  "@appTitle": {
+    "description": "应用程序标题"
+  },
+  
+  "news": "新闻",
+  "@news": {
+    "description": "新闻分类标签"
+  },
+  
+  "spirit": "精神",
+  "@spirit": {
+    "description": "精神分类标签"
+  },
+  
+  "people": "人物",
+  "@people": {
+    "description": "人物分类标签"
+  },
+  
+  "partyHistory": "党史",
+  "@partyHistory": {
+    "description": "党史分类标签"
+  },
+  
+  "loading": "加载中",
+  "@loading": {
+    "description": "加载文本"
+  },
+  
+  "loadingContent": "正在加载{category}内容...",
+  "@loadingContent": {
+    "description": "加载特定分类的内容",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "loadFailed": "加载失败",
+  "@loadFailed": {
+    "description": "加载失败标题"
+  },
+  
+  "loadError": "加载内容时发生错误: {error}",
+  "@loadError": {
+    "description": "加载失败时的错误消息",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "retry": "重试",
+  "@retry": {
+    "description": "重试按钮文本"
+  },
+  
+  "noContent": "暂无{category}内容",
+  "@noContent": {
+    "description": "特定分类无内容消息",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "noContentDescription": "当前没有可显示的{category}内容",
+  "@noContentDescription": {
+    "description": "无内容时的描述",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "refresh": "刷新",
+  "@refresh": {
+    "description": "刷新按钮文本"
+  },
+  
+  "viewMore": "查看更多",
+  "@viewMore": {
+    "description": "查看更多按钮文本"
+  },
+  
+  "source": "来源: {source}",
+  "@source": {
+    "description": "来源信息",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "studyFullText": "学习\n全文",
+  "@studyFullText": {
+    "description": "学习全文按钮"
+  },
+  
+  "summarizeKeyPoints": "总结\n要点",
+  "@summarizeKeyPoints": {
+    "description": "总结要点按钮"
+  },
+  
+  "enterConversation": "进入\n对话",
+  "@enterConversation": {
+    "description": "进入对话按钮"
+  },
+  
+  "aiInterpretation": "AI解读",
+  "@aiInterpretation": {
+    "description": "AI解读对话框标题"
+  },
+  
+  "aiInterpreting": "AI解读中",
+  "@aiInterpreting": {
+    "description": "AI正在解读文本"
+  },
+  
+  "aiGeneratedContent": "AI生成内容，请谨慎对待",
+  "@aiGeneratedContent": {
+    "description": "关于AI生成内容的警告"
+  },
+  
+  "aiInterpretationFailed": "AI解读失败",
+  "@aiInterpretationFailed": {
+    "description": "AI解读失败消息"
+  },
+  
+  "requestError": "请求异常: {error}",
+  "@requestError": {
+    "description": "请求错误消息",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  
+  "articleContent": "文章内容",
+  "@articleContent": {
+    "description": "文章内容标题"
+  },
+  
+  "autoPlay": "自动播放",
+  "@autoPlay": {
+    "description": "自动播放设置"
+  },
+  
+  "autoPlayDescription": "AI解读完成后自动播放音频",
+  "@autoPlayDescription": {
+    "description": "自动播放设置描述"
+  },
+  
+  "voiceSelection": "音色选择",
+  "@voiceSelection": {
+    "description": "音色选择设置"
+  },
+  
+  "voiceSelectionDescription": "选择TTS语音的音色",
+  "@voiceSelectionDescription": {
+    "description": "音色选择设置描述"
+  },
+  
+  "audioSettings": "音频设置",
+  "@audioSettings": {
+    "description": "音频设置标题"
+  },
+  
+  "xiaoxiao": "晓晓 (女声)",
+  "@xiaoxiao": {
+    "description": "晓晓音色选项"
+  },
+  
+  "yunxi": "云希 (男声)",
+  "@yunxi": {
+    "description": "云希音色选项"
+  },
+  
+  "yunyang": "云扬 (男声)",
+  "@yunyang": {
+    "description": "云扬音色选项"
+  },
+  
+  "xiaoyi": "晓伊 (女声)",
+  "@xiaoyi": {
+    "description": "晓伊音色选项"
+  },
+  
+  "yunjian": "云健 (男声)",
+  "@yunjian": {
+    "description": "云健音色选项"
+  },
+  
+  "xiaohan": "晓涵 (女声)",
+  "@xiaohan": {
+    "description": "晓涵音色选项"
+  },
+  
+  "xiaomo": "晓墨 (女声)",
+  "@xiaomo": {
+    "description": "晓墨音色选项"
+  },
+  
+  "xiaoxuan": "晓萱 (女声)",
+  "@xiaoxuan": {
+    "description": "晓萱音色选项"
+  },
+  
+  "xiaoyan": "晓颜 (女声)",
+  "@xiaoyan": {
+    "description": "晓颜音色选项"
+  },
+  
+  "yunfeng": "云枫 (男声)",
+  "@yunfeng": {
+    "description": "云枫音色选项"
+  }
+}
+

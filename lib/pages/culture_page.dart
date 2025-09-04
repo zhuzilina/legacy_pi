@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:legacy_pi/widgets/ai_interpretation_dialog.dart';
 import 'package:legacy_pi/widgets/key_points_dialog.dart';
+import 'package:legacy_pi/pages/chat_page.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import '../services/news_api_service.dart';
@@ -11,6 +11,7 @@ import '../services/unified_cache_service.dart';
 import '../services/markdown_parser_service.dart';
 import '../models/article.dart';
 import '../widgets/rich_content_widget.dart';
+import '../l10n/app_localizations.dart';
 
 class CulturePage extends StatefulWidget {
   const CulturePage({super.key});
@@ -29,9 +30,9 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
    final NewsApiService _newsApiService = NewsApiService();
    final AiService _aiService = AiService();
    
-   // 分类数据
-   final List<String> _categories = ['新闻', '精神', '人物', '党史'];
-   int _currentTabIndex = 0;
+     // 分类数据
+  late List<String> _categories;
+  int _currentTabIndex = 0;
   
   // 各分类的数据状态
   final Map<String, bool> _isLoadingMap = {};
@@ -44,24 +45,48 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
   // 统一配色方案：白底黑字
   final Color _backgroundColor = Colors.white;
   final Color _textColor = Colors.black87;
+  
+
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _categories.length, vsync: this);
     
-    // 初始化各分类的状态
-    for (final category in _categories) {
-      _isLoadingMap[category] = false;
-      _errorMessageMap[category] = '';
-      _articlesMap[category] = [];
+    // 延迟添加浮动按钮到 Overlay，确保在 build 完成后执行
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _addFloatingButtonToOverlay();
+    });
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // 获取本地化字符串
+    final l10n = AppLocalizations.of(context)!;
+    _categories = [l10n.news, l10n.spirit, l10n.people, l10n.partyHistory];
+    
+    // 初始化TabController（如果还没有初始化）
+    try {
+      // 尝试访问 _tabController，如果未初始化会抛出异常
+      _tabController.length;
+    } catch (e) {
+      // 如果未初始化，则创建新的TabController
+      _tabController = TabController(length: _categories.length, vsync: this);
+      
+      // 初始化各分类的状态
+      for (final category in _categories) {
+        _isLoadingMap[category] = false;
+        _errorMessageMap[category] = '';
+        _articlesMap[category] = [];
+      }
+      
+      // 加载默认分类（新闻）的数据
+      _loadArticlesForCategory(_categories[0]);
+      
+      // 监听Tab切换
+      _tabController.addListener(_onTabChanged);
     }
-    
-    // 加载默认分类（新闻）的数据
-    _loadArticlesForCategory(_categories[0]);
-    
-    // 监听Tab切换
-    _tabController.addListener(_onTabChanged);
   }
 
   @override
@@ -69,7 +94,55 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _pageController.dispose();
+    // 移除浮动按钮的 Overlay
+    _removeFloatingButtonFromOverlay();
     super.dispose();
+  }
+  
+  // 浮动按钮的 Overlay 引用
+  OverlayEntry? _floatingButtonOverlayEntry;
+  
+  // 添加浮动按钮到 Overlay
+  void _addFloatingButtonToOverlay() {
+    if (_floatingButtonOverlayEntry != null) return;
+    
+    _floatingButtonOverlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 60, // 距离底部60像素，避免与TabBar重叠
+        right: 20, // 距离右边20像素
+        child: _buildFloatingButtonWithOptions(),
+      ),
+    );
+    
+    Overlay.of(context).insert(_floatingButtonOverlayEntry!);
+  }
+  
+  // 更新浮动按钮的 Overlay（当状态变化时调用）
+  void _updateFloatingButtonOverlay() {
+    if (_floatingButtonOverlayEntry != null) {
+      _floatingButtonOverlayEntry!.markNeedsBuild();
+    }
+  }
+  
+  // 移除浮动按钮的 Overlay
+  void _removeFloatingButtonFromOverlay() {
+    _floatingButtonOverlayEntry?.remove();
+    _floatingButtonOverlayEntry = null;
+  }
+  
+  // 隐藏浮动按钮
+  void _hideFloatingButton() {
+    if (_floatingButtonOverlayEntry != null) {
+      _floatingButtonOverlayEntry!.remove();
+      _floatingButtonOverlayEntry = null;
+    }
+  }
+  
+  // 显示浮动按钮
+  void _showFloatingButton() {
+    if (_floatingButtonOverlayEntry == null) {
+      _addFloatingButtonToOverlay();
+    }
   }
   
   void _onTabChanged() {
@@ -85,6 +158,9 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
       if (_articlesMap[category]!.isEmpty && !_isLoadingMap[category]!) {
         _loadArticlesForCategory(category);
       }
+      
+      // 更新浮动按钮的 Overlay
+      _updateFloatingButtonOverlay();
     }
   }
 
@@ -262,12 +338,6 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
             controller: _tabController,
             children: _categories.map((category) => _buildCategoryView(category)).toList(),
           ),
-                                // 浮动按钮和选项
-            Positioned(
-              bottom: 60, // 距离底部60像素，避免与TabBar重叠
-              right: 20, // 距离右边20像素
-              child: _buildFloatingButtonWithOptions(),
-            ),
         ],
       ),
     );
@@ -308,7 +378,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
               ),
               const SizedBox(height: 20),
               Text(
-                errorMessage.isNotEmpty ? errorMessage : '正在加载$category内容...',
+                errorMessage.isNotEmpty ? errorMessage : AppLocalizations.of(context)!.loadingContent(category),
                 style: TextStyle(
                   fontSize: 16,
                   color: _textColor.withOpacity(0.6),
@@ -343,7 +413,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  '加载失败',
+                  AppLocalizations.of(context)!.loadFailed,
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -367,7 +437,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                     foregroundColor: _backgroundColor,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                   ),
-                  child: const Text('重试'),
+                  child: Text(AppLocalizations.of(context)!.retry),
                 ),
               ],
             ),
@@ -397,7 +467,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  '暂无$category内容',
+                  AppLocalizations.of(context)!.noContent(category),
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -406,7 +476,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '当前没有可显示的$category内容',
+                  AppLocalizations.of(context)!.noContentDescription(category),
                   style: TextStyle(
                     fontSize: 16,
                     color: _textColor.withOpacity(0.6),
@@ -421,7 +491,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                   ),
-                  child: const Text('刷新'),
+                  child: Text(AppLocalizations.of(context)!.refresh),
                 ),
               ],
             ),
@@ -440,6 +510,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
         setState(() {
           _currentPage = page;
         });
+        // 更新浮动按钮的 Overlay
+        _updateFloatingButtonOverlay();
       },
       itemCount: articles.length,
       itemBuilder: (context, index) {
@@ -476,6 +548,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                                 ),
                                 textColor: _textColor,
                                 enableScrolling: false, // 禁用滚动
+                                article: article, // 传递文章对象
+                                contextText: article.content, // 传递文章内容作为上下文
                               ),
                             ),
                             // 渐变遮罩和查看更多按钮
@@ -511,9 +585,9 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                                       ),
                                     ),
                                     icon: const Icon(Icons.expand_more, size: 20),
-                                    label: const Text(
-                                      '查看更多',
-                                      style: TextStyle(fontSize: 16),
+                                    label: Text(
+                                      AppLocalizations.of(context)!.viewMore,
+                                      style: const TextStyle(fontSize: 16),
                                     ),
                                   ),
                                 ),
@@ -576,7 +650,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                 const SizedBox(height: 8),
                 // 来源信息（小号字体）
                 Text(
-                  '来源: ${article.source}',
+                  AppLocalizations.of(context)!.source(article.source),
                   style: TextStyle(
                     fontSize: 14,
                     color: _textColor.withOpacity(0.7),
@@ -595,10 +669,14 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
 
            // 显示全文内容对话框
      void _showFullContentDialog(Article article) {
-       showDialog(
+       // 使用 showGeneralDialog 并设置较低的层级，确保浮动按钮能够显示在最上面
+       showGeneralDialog(
          context: context,
-         barrierDismissible: false,
-         builder: (BuildContext context) {
+         barrierDismissible: true,
+         barrierColor: Colors.black54,
+         barrierLabel: '',
+         transitionDuration: const Duration(milliseconds: 300),
+         pageBuilder: (context, animation, secondaryAnimation) {
            return TweenAnimationBuilder<double>(
              duration: const Duration(milliseconds: 300),
              curve: Curves.easeOutBack,
@@ -608,9 +686,18 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                  scale: scale,
                  child: _FullContentDialog(
                    article: article,
+                   onClose: () {
+                     Navigator.of(context).pop();
+                   },
                  ),
                );
              },
+           );
+         },
+         transitionBuilder: (context, animation, secondaryAnimation, child) {
+           return FadeTransition(
+             opacity: animation,
+             child: child,
            );
          },
        );
@@ -618,53 +705,92 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
      
      // 显示AI解读对话框
      void _showAiInterpretationDialog(Article article, {String promptType = 'summary'}) {
-       showDialog(
-         context: context,
-         barrierDismissible: false,
-         builder: (BuildContext context) {
-           return TweenAnimationBuilder<double>(
-             duration: const Duration(milliseconds: 300),
-             curve: Curves.easeOutBack,
-             tween: Tween(begin: 0.0, end: 1.0),
-             builder: (context, scale, child) {
-               return Transform.scale(
-                 scale: scale,
-                 child: AiInterpretationDialog(
-                   article: article,
-                   aiService: _aiService,
-                   cacheService: _cacheService,
-                   promptType: promptType,
-                 ),
-               );
-             },
-           );
-         },
-       );
+       // 隐藏悬浮按钮
+       _hideFloatingButton();
+       
+       Navigator.of(context).push(
+         PageRouteBuilder(
+           opaque: false,
+           barrierColor: Colors.transparent,
+           barrierDismissible: true,
+           pageBuilder: (context, animation, secondaryAnimation) {
+             return TweenAnimationBuilder<double>(
+               duration: const Duration(milliseconds: 300),
+               curve: Curves.easeOutBack,
+               tween: Tween(begin: 0.0, end: 1.0),
+               builder: (context, scale, child) {
+                 return Transform.scale(
+                   scale: scale,
+                   child: AiInterpretationDialog(
+                     article: article,
+                     aiService: _aiService,
+                     cacheService: _cacheService,
+                     promptType: promptType,
+                   ),
+                 );
+               },
+             );
+           },
+           transitionsBuilder: (context, animation, secondaryAnimation, child) {
+             return FadeTransition(
+               opacity: animation,
+               child: child,
+             );
+           },
+         ),
+       ).then((_) {
+         // 弹窗关闭后显示悬浮按钮
+         _showFloatingButton();
+       });
      }
      
      // 显示总结要点对话框（内容撑开高度）
      void _showKeyPointsDialog(Article article) {
-       showDialog(
-         context: context,
-         barrierDismissible: false,
-         builder: (BuildContext context) {
-           return TweenAnimationBuilder<double>(
-             duration: const Duration(milliseconds: 300),
-             curve: Curves.easeOutBack,
-             tween: Tween(begin: 0.0, end: 1.0),
-             builder: (context, scale, child) {
-               return Transform.scale(
-                 scale: scale,
-                 child: KeyPointsDialog(
-                   article: article,
-                   aiService: _aiService,
-                   cacheService: _cacheService,
-                   promptType: 'key_points',
-                 ),
-               );
-             },
-           );
-         },
+       // 隐藏悬浮按钮
+       _hideFloatingButton();
+       
+       Navigator.of(context).push(
+         PageRouteBuilder(
+           opaque: false,
+           barrierColor: Colors.transparent,
+           barrierDismissible: true,
+           pageBuilder: (context, animation, secondaryAnimation) {
+             return TweenAnimationBuilder<double>(
+               duration: const Duration(milliseconds: 300),
+               curve: Curves.easeOutBack,
+               tween: Tween(begin: 0.0, end: 1.0),
+               builder: (context, scale, child) {
+                 return Transform.scale(
+                   scale: scale,
+                   child: KeyPointsDialog(
+                     article: article,
+                     aiService: _aiService,
+                     cacheService: _cacheService,
+                     promptType: 'key_points',
+                   ),
+                 );
+               },
+             );
+           },
+           transitionsBuilder: (context, animation, secondaryAnimation, child) {
+             return FadeTransition(
+               opacity: animation,
+               child: child,
+             );
+           },
+         ),
+       ).then((_) {
+         // 弹窗关闭后显示悬浮按钮
+         _showFloatingButton();
+       });
+     }
+     
+     // 导航到对话页面
+     void _navigateToChatPage(Article article) {
+       Navigator.of(context).push(
+         MaterialPageRoute(
+           builder: (context) => ChatPage(article: article),
+         ),
        );
      }
 
@@ -706,13 +832,13 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
          crossAxisAlignment: CrossAxisAlignment.end,
          children: [
            // 学习全文按钮
-           _buildNewFloatingButton('学习\n全文', 0),
+           _buildNewFloatingButton(AppLocalizations.of(context)!.studyFullText, 0),
            const SizedBox(height: 8),
            // 总结要点按钮
-           _buildNewFloatingButton('总结\n要点', 1),
+           _buildNewFloatingButton(AppLocalizations.of(context)!.summarizeKeyPoints, 1),
            const SizedBox(height: 8),
            // 进入对话按钮
-           _buildNewFloatingButton('进入\n对话', 2),
+           _buildNewFloatingButton(AppLocalizations.of(context)!.enterConversation, 2),
                  ],
       ),
     );
@@ -750,6 +876,10 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                  // 为第二个按钮（总结要点）添加AI解读功能
                  else if (index == 1) {
                    _showKeyPointsDialog(currentArticle);
+                 }
+                 // 为第三个按钮（进入对话）添加导航到对话页面功能
+                 else if (index == 2) {
+                   _navigateToChatPage(currentArticle);
                  }
                }
              },
@@ -867,21 +997,29 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
 /// 全文内容对话框Widget（恢复原来的查看更多功能）
 class _FullContentDialog extends StatelessWidget {
   final Article article;
+  final VoidCallback? onClose;
 
   const _FullContentDialog({
     required this.article,
+    this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
+    return Center(
       child: Container(
-        width: double.infinity,
+        width: MediaQuery.of(context).size.width * 0.9,
         height: MediaQuery.of(context).size.height * 0.85,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -909,7 +1047,13 @@ class _FullContentDialog extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () {
+                      if (onClose != null) {
+                        onClose!();
+                      } else {
+                        Navigator.of(context).pop();
+                      }
+                    },
                     icon: const Icon(Icons.close, color: Colors.grey),
                   ),
                 ],
@@ -920,15 +1064,34 @@ class _FullContentDialog extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
-                child: RichContentWidget(
-                  contentItems: article.parseContentItems(),
-                  textStyle: const TextStyle(
-                    fontSize: 18,
-                    height: 1.6,
-                    color: Colors.black87,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  textColor: Colors.black87,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 标题行
+                    Text(
+                      AppLocalizations.of(context)!.articleContent,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // 使用RichContentWidget显示内容，支持图片和文本选择
+                    RichContentWidget(
+                      contentItems: article.parseContentItems(),
+                      textStyle: const TextStyle(
+                        fontSize: 18,
+                        height: 1.6,
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      textColor: Colors.black87,
+                      enableScrolling: false, // 在弹窗中禁用滚动
+                      article: article, // 传递文章对象
+                      contextText: article.content, // 传递文章内容作为上下文
+                    ),
+                  ],
                 ),
               ),
             ),

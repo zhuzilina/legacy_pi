@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/content_item.dart';
+import '../pages/chat_page.dart';
+import '../models/article.dart';
 
 class RichContentWidget extends StatelessWidget {
   final List<ContentItem> contentItems;
   final TextStyle textStyle;
   final Color textColor;
   final bool enableScrolling; // 是否启用滚动
+  final Article? article; // 新增：文章对象，用于传递到聊天页面
+  final String? contextText; // 新增：上下文文本，用于传递到聊天页面
 
   const RichContentWidget({
     super.key,
@@ -13,6 +17,8 @@ class RichContentWidget extends StatelessWidget {
     required this.textStyle,
     required this.textColor,
     this.enableScrolling = true, // 默认启用滚动
+    this.article, // 可选的文章对象，用于传递到聊天页面
+    this.contextText, // 可选的上下文文本，用于传递到聊天页面
   });
 
   @override
@@ -56,10 +62,7 @@ class RichContentWidget extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
-      child: Text(
-        item.text!,
-        style: textStyle,
-      ),
+      child: _buildSelectableTextWithAiOption(item.text!),
     );
   }
 
@@ -98,9 +101,9 @@ class RichContentWidget extends StatelessWidget {
                 color: textColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8.0),
               ),
-              child: Text(
+              child: _buildSelectableTextWithAiOption(
                 item.imageDescription!,
-                style: textStyle.copyWith(
+                customStyle: textStyle.copyWith(
                   fontSize: textStyle.fontSize! * 0.85, // 稍小的字体
                   fontStyle: FontStyle.italic,
                   color: textColor.withOpacity(0.8),
@@ -207,6 +210,95 @@ class RichContentWidget extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  // 构建带有AI选项的可选择文本
+  Widget _buildSelectableTextWithAiOption(String text, {TextStyle? customStyle}) {
+    final effectiveStyle = customStyle ?? textStyle;
+    return Builder(
+      builder: (context) => SelectableText(
+        text,
+        style: effectiveStyle,
+        enableInteractiveSelection: true,
+        textAlign: TextAlign.start,
+        contextMenuBuilder: (context, editableTextState) {
+          return AdaptiveTextSelectionToolbar(
+            anchors: editableTextState.contextMenuAnchors,
+            children: [
+              // 默认的复制选项
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.cutSelection(SelectionChangedCause.toolbar);
+                    editableTextState.hideToolbar();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text('剪切'),
+                  ),
+                ),
+              ),
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.copySelection(SelectionChangedCause.toolbar);
+                    editableTextState.hideToolbar();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text('复制'),
+                  ),
+                ),
+              ),
+              // 新增的"问AI"选项
+              if (article != null) // 只有在有文章对象时才显示"问AI"选项
+                Material(
+                  child: InkWell(
+                    onTap: () {
+                      editableTextState.hideToolbar();
+                      // 获取用户实际选择的文本
+                      final selectedText = editableTextState.currentTextEditingValue.selection.textInside(
+                        editableTextState.currentTextEditingValue.text,
+                      );
+                      _navigateToChatWithSelectedText(context, selectedText);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 16),
+                          SizedBox(width: 8),
+                          Text('问AI'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // 导航到聊天页面，传递选中的文本
+  void _navigateToChatWithSelectedText(BuildContext context, String selectedText) {
+    if (article == null) return;
+    
+    // 构建消息参数：选中的文本 + "为我解答"
+    final messageParam = '$selectedText为我解答';
+    
+    // 导航到聊天页面，不传递conversationId，使用默认的对话历史（与直接进入对话相同）
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          article: article!,
+          messageParam: messageParam,
+          // 不传递conversationId，使用默认的对话历史
         ),
       ),
     );

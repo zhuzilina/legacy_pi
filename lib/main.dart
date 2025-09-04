@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
 import 'pages/home_page.dart';
 import 'services/global_state.dart';
 import 'config/api_config.dart';
@@ -24,6 +26,20 @@ class RedCultureApp extends StatelessWidget {
     return MaterialApp(
       title: '红色文化学习',
       debugShowCheckedModeBanner: false,
+      
+      // 本地化支持
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh'), // 中文
+        Locale('en'), // 英文
+      ],
+      locale: const Locale('zh'), // 默认使用中文
+      
       theme: ThemeData(
         primarySwatch: Colors.red,
         primaryColor: Colors.red[700],

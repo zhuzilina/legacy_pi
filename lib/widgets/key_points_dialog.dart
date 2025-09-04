@@ -6,6 +6,7 @@ import 'package:legacy_pi/services/ai_service.dart';
 import 'package:legacy_pi/services/markdown_parser_service.dart';
 import 'package:legacy_pi/services/tts_service.dart';
 import 'package:legacy_pi/services/unified_cache_service.dart';
+import '../pages/chat_page.dart';
 
 /// 总结要点对话框Widget（内容撑开高度）
 class KeyPointsDialog extends StatefulWidget {
@@ -818,66 +819,80 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
+    return Material(
+      type: MaterialType.transparency,
       child: Container(
         width: double.infinity,
-        // 关键修改：移除固定高度，让内容撑开
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9, // 最大高度限制
-          minHeight: MediaQuery.of(context).size.height * 0.3,  // 最小高度限制
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Colors.white,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min, // 关键：让列根据内容调整大小
-          children: [
-            // 对话框头部
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
+        height: double.infinity,
+        color: Colors.black54,
+        child: Center(
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            // 关键修改：移除固定高度，让内容撑开
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.9, // 最大高度限制
+              minHeight: MediaQuery.of(context).size.height * 0.3,  // 最小高度限制
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                Text(
-                          _isLoading ? 'AI解读中' : widget.article.title,
-                          style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min, // 关键：让列根据内容调整大小
+              children: [
+                // 对话框头部
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: const BoxDecoration(
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: Colors.grey),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                    Text(
+                              _isLoading ? 'AI解读中' : widget.article.title,
+                              style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const Divider(height: 1),
+                // 对话框内容 - 关键修改：移除Expanded，让内容自然撑开
+                _isLoading
+                    ? _buildLoadingContent()
+                    : _buildAiContent(),
+                // 音频播放器覆盖层
+                if (!_isLoading && _aiInterpretation.isNotEmpty)
+                  _buildAudioPlayerOverlay(),
+              ],
             ),
-            const Divider(height: 1),
-            // 对话框内容 - 关键修改：移除Expanded，让内容自然撑开
-            _isLoading
-                ? _buildLoadingContent()
-                : _buildAiContent(),
-            // 音频播放器覆盖层
-            if (!_isLoading && _aiInterpretation.isNotEmpty)
-              _buildAudioPlayerOverlay(),
-          ],
+          ),
         ),
       ),
     );
@@ -1118,7 +1133,7 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
       }
     }
     
-    return SelectableText.rich(
+    return _buildSelectableTextWithAiOption(
       TextSpan(
         children: spans,
         style: const TextStyle(
@@ -1291,6 +1306,76 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // 构建带有AI选项的可选择文本
+  Widget _buildSelectableTextWithAiOption(TextSpan textSpan) {
+    return Builder(
+      builder: (context) => SelectableText.rich(
+        textSpan,
+        contextMenuBuilder: (context, editableTextState) {
+          return AdaptiveTextSelectionToolbar(
+            anchors: editableTextState.contextMenuAnchors,
+            children: [
+              // 默认的复制选项
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.copySelection(SelectionChangedCause.toolbar);
+                    editableTextState.hideToolbar();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text('复制'),
+                  ),
+                ),
+              ),
+              // 新增的"问AI"选项
+              Material(
+                child: InkWell(
+                  onTap: () {
+                    editableTextState.hideToolbar();
+                    // 获取用户实际选择的文本
+                    final selectedText = editableTextState.currentTextEditingValue.selection.textInside(
+                      editableTextState.currentTextEditingValue.text,
+                    );
+                    _navigateToChatWithSelectedText(context, selectedText);
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 16),
+                        SizedBox(width: 8),
+                        Text('问AI'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // 导航到聊天页面，传递选中的文本
+  void _navigateToChatWithSelectedText(BuildContext context, String selectedText) {
+    // 构建消息参数：选中的文本 + "为我解答"
+    final messageParam = '$selectedText为我解答';
+    
+    // 导航到聊天页面，不传递conversationId，使用默认的对话历史（与直接进入对话相同）
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          article: widget.article,
+          messageParam: messageParam,
+          // 不传递conversationId，使用默认的对话历史
+        ),
       ),
     );
   }
