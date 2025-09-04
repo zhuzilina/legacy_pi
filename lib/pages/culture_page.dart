@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/widgets/ai_interpretation_dialog.dart';
 import 'package:legacy_pi/widgets/key_points_dialog.dart';
+import 'package:legacy_pi/widgets/floating_action_buttons.dart';
 import 'package:legacy_pi/pages/chat_page.dart';
 import 'dart:async';
-import 'dart:typed_data';
 import '../services/news_api_service.dart';
 import '../services/ai_service.dart';
-import '../services/tts_service.dart';
 import '../services/unified_cache_service.dart';
-import '../services/markdown_parser_service.dart';
 import '../models/article.dart';
 import '../widgets/rich_content_widget.dart';
 import '../l10n/app_localizations.dart';
@@ -39,8 +37,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
   final Map<String, String> _errorMessageMap = {};
   final Map<String, List<Article>> _articlesMap = {};
   
-  // 浮动按钮状态
-  bool _showFloatingOptions = false;
+  // 悬浮按钮管理器
+  FloatingActionButtonsManager? _floatingButtonsManager;
   
   // 统一配色方案：白底黑字
   final Color _backgroundColor = Colors.white;
@@ -52,9 +50,9 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
   void initState() {
     super.initState();
     
-    // 延迟添加浮动按钮到 Overlay，确保在 build 完成后执行
+    // 延迟初始化悬浮按钮，确保在 build 完成后执行
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _addFloatingButtonToOverlay();
+      _initializeFloatingButtons();
     });
   }
   
@@ -94,54 +92,66 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _pageController.dispose();
-    // 移除浮动按钮的 Overlay
-    _removeFloatingButtonFromOverlay();
+    // 销毁悬浮按钮管理器
+    _floatingButtonsManager?.dispose();
     super.dispose();
   }
   
-  // 浮动按钮的 Overlay 引用
-  OverlayEntry? _floatingButtonOverlayEntry;
-  
-  // 添加浮动按钮到 Overlay
-  void _addFloatingButtonToOverlay() {
-    if (_floatingButtonOverlayEntry != null) return;
+  // 初始化悬浮按钮
+  void _initializeFloatingButtons() {
+    if (_floatingButtonsManager != null) return;
     
-    _floatingButtonOverlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
-        bottom: 60, // 距离底部60像素，避免与TabBar重叠
-        right: 20, // 距离右边20像素
-        child: _buildFloatingButtonWithOptions(),
-      ),
+    final buttonConfigs = FloatingActionButtonsBuilder.buildArticleButtons(
+      context: context,
+      onStudyFullText: _onStudyFullText,
+      onSummarizeKeyPoints: _onSummarizeKeyPoints,
+      onEnterConversation: _onEnterConversation,
     );
     
-    Overlay.of(context).insert(_floatingButtonOverlayEntry!);
+    _floatingButtonsManager = FloatingActionButtonsManager(
+      context: context,
+      buttonConfigs: buttonConfigs,
+      bottomOffset: 187,
+      rightOffset: 20,
+    );
+    
+    _floatingButtonsManager!.show();
   }
   
-  // 更新浮动按钮的 Overlay（当状态变化时调用）
-  void _updateFloatingButtonOverlay() {
-    if (_floatingButtonOverlayEntry != null) {
-      _floatingButtonOverlayEntry!.markNeedsBuild();
+  // 更新悬浮按钮
+  void _updateFloatingButtons() {
+    _floatingButtonsManager?.update();
+  }
+  
+  // 隐藏悬浮按钮
+  void _hideFloatingButtons() {
+    _floatingButtonsManager?.hide();
+  }
+  
+  // 显示悬浮按钮
+  void _showFloatingButtons() {
+    _floatingButtonsManager?.show();
+  }
+  
+  // 悬浮按钮回调方法
+  void _onStudyFullText() {
+    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+    if (currentArticle != null) {
+      _showAiInterpretationDialog(currentArticle);
     }
   }
   
-  // 移除浮动按钮的 Overlay
-  void _removeFloatingButtonFromOverlay() {
-    _floatingButtonOverlayEntry?.remove();
-    _floatingButtonOverlayEntry = null;
-  }
-  
-  // 隐藏浮动按钮
-  void _hideFloatingButton() {
-    if (_floatingButtonOverlayEntry != null) {
-      _floatingButtonOverlayEntry!.remove();
-      _floatingButtonOverlayEntry = null;
+  void _onSummarizeKeyPoints() {
+    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+    if (currentArticle != null) {
+      _showKeyPointsDialog(currentArticle);
     }
   }
   
-  // 显示浮动按钮
-  void _showFloatingButton() {
-    if (_floatingButtonOverlayEntry == null) {
-      _addFloatingButtonToOverlay();
+  void _onEnterConversation() {
+    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+    if (currentArticle != null) {
+      _navigateToChatPage(currentArticle);
     }
   }
   
@@ -159,8 +169,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
         _loadArticlesForCategory(category);
       }
       
-      // 更新浮动按钮的 Overlay
-      _updateFloatingButtonOverlay();
+      // 更新悬浮按钮
+      _updateFloatingButtons();
     }
   }
 
@@ -510,8 +520,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
         setState(() {
           _currentPage = page;
         });
-        // 更新浮动按钮的 Overlay
-        _updateFloatingButtonOverlay();
+        // 更新悬浮按钮
+        _updateFloatingButtons();
       },
       itemCount: articles.length,
       itemBuilder: (context, index) {
@@ -706,7 +716,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
      // 显示AI解读对话框
      void _showAiInterpretationDialog(Article article, {String promptType = 'summary'}) {
        // 隐藏悬浮按钮
-       _hideFloatingButton();
+       _hideFloatingButtons();
        
        Navigator.of(context).push(
          PageRouteBuilder(
@@ -740,14 +750,14 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
          ),
        ).then((_) {
          // 弹窗关闭后显示悬浮按钮
-         _showFloatingButton();
+         _showFloatingButtons();
        });
      }
      
      // 显示总结要点对话框（内容撑开高度）
      void _showKeyPointsDialog(Article article) {
        // 隐藏悬浮按钮
-       _hideFloatingButton();
+       _hideFloatingButtons();
        
        Navigator.of(context).push(
          PageRouteBuilder(
@@ -781,7 +791,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
          ),
        ).then((_) {
          // 弹窗关闭后显示悬浮按钮
-         _showFloatingButton();
+         _showFloatingButtons();
        });
      }
      
@@ -794,202 +804,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
        );
      }
 
-  // 页面指示器
-  Widget _buildPageIndicator(int totalCount) {
-    return Positioned(
-      right: 20,
-      top: 0,
-      bottom: 0,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(
-            totalCount,
-            (index) => Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              width: 8,
-              height: _currentPage == index ? 24 : 8,
-              decoration: BoxDecoration(
-                color: _currentPage == index
-                    ? _textColor
-                    : _textColor.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
-     // 构建三个垂直排列的悬浮按钮
-   Widget _buildFloatingButtonWithOptions() {
-     return SizedBox(
-       width: 120, // 减小容器宽度
-       height: MediaQuery.of(context).size.height / 3, // 屏幕高度的三分之一
-       child: Column(
-         mainAxisAlignment: MainAxisAlignment.end, // 从底部开始排列
-         crossAxisAlignment: CrossAxisAlignment.end,
-         children: [
-           // 学习全文按钮
-           _buildNewFloatingButton(AppLocalizations.of(context)!.studyFullText, 0),
-           const SizedBox(height: 8),
-           // 总结要点按钮
-           _buildNewFloatingButton(AppLocalizations.of(context)!.summarizeKeyPoints, 1),
-           const SizedBox(height: 8),
-           // 进入对话按钮
-           _buildNewFloatingButton(AppLocalizations.of(context)!.enterConversation, 2),
-                 ],
-      ),
-    );
-  }
-  
-  // 构建新的圆形悬浮按钮
-          Widget _buildNewFloatingButton(String text, int index) {
-          return Container(
-            width: 40,
-            height: 40,
-      decoration: BoxDecoration(
-        color: Colors.red[700], // 主题色背景（红色）
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.red.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-                   child: InkWell(
-             borderRadius: BorderRadius.circular(40),
-             onTap: () {
-               print('悬浮按钮被点击: $text');
-               // 获取当前显示的文章
-               final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
-               if (currentArticle != null) {
-                 // 为第一个按钮（学习全文）添加AI解读功能
-                 if (index == 0) {
-                   _showAiInterpretationDialog(currentArticle);
-                 }
-                 // 为第二个按钮（总结要点）添加AI解读功能
-                 else if (index == 1) {
-                   _showKeyPointsDialog(currentArticle);
-                 }
-                 // 为第三个按钮（进入对话）添加导航到对话页面功能
-                 else if (index == 2) {
-                   _navigateToChatPage(currentArticle);
-                 }
-               }
-             },
-      child: Padding(
-            padding: const EdgeInsets.all(1), // 内边距调整为1像素
-            child: Center(
-                               child: Text(
-                   text,
-                   style: const TextStyle(
-                     fontSize: 12,
-                     fontWeight: FontWeight.w600,
-                     color: Colors.white, // 白色字体
-                     height: 1.2,
-                   ),
-                   textAlign: TextAlign.center,
-                 ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 构建带动画的选项按钮（保留以备后用）
-  Widget _buildAnimatedOptionButton(String text, int index) {
-    return AnimatedScale(
-      scale: _showFloatingOptions ? 1.0 : 0.0,
-      duration: Duration(milliseconds: 200 + index * 50),
-      curve: Curves.elasticOut,
-      child: AnimatedOpacity(
-        opacity: _showFloatingOptions ? 1.0 : 0.0,
-        duration: Duration(milliseconds: 150 + index * 50),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: _backgroundColor,
-            borderRadius: BorderRadius.circular(25),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            border: Border.all(
-              color: _textColor.withOpacity(0.1),
-              width: 1,
-            ),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(25),
-              onTap: () {
-                print('选项按钮被点击: $text');
-                // 这里可以添加具体的功能
-                setState(() {
-                  _showFloatingOptions = false; // 点击后隐藏选项
-                });
-              },
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: _textColor,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-     // 构建选项按钮（保留原方法以防兼容性问题）
-   Widget _buildOptionButton(String text, int index) {
-     return _buildAnimatedOptionButton(text, index);
-   }
- 
-   // 构建浮动按钮
-   Widget _buildFloatingButton() {
-     return Container(
-       width: 72,
-       height: 72,
-       child: Material(
-         color: Colors.transparent,
-         child: InkWell(
-           borderRadius: BorderRadius.circular(36),
-           onTap: () {
-             print('浮动按钮被点击！当前状态: $_showFloatingOptions');
-             // 切换选项显示状态
-             setState(() {
-               _showFloatingOptions = !_showFloatingOptions;
-             });
-             print('状态已更新为: $_showFloatingOptions');
-           },
-           child: Padding(
-             padding: const EdgeInsets.all(16),
-             child: Image.asset(
-               'assets/images/float_icon.png',
-               width: 40,
-               height: 40,
-               fit: BoxFit.contain,
-             ),
-           ),
-         ),
-       ),
-     );
-   }
  }
 
 

@@ -1,55 +1,174 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'daily_question_page.dart';
+import 'knowledge_detail_page.dart';
 
-class KnowledgePage extends StatelessWidget {
+class KnowledgePage extends StatefulWidget {
   const KnowledgePage({super.key});
+
+  @override
+  State<KnowledgePage> createState() => _KnowledgePageState();
+}
+
+class _KnowledgePageState extends State<KnowledgePage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  
+  // API状态管理
+  Map<String, List<dynamic>> _knowledgeData = {
+    'new_thought': [],
+    'theory': [],
+  };
+  Map<String, bool> _loadingStates = {
+    'new_thought': false,
+    'theory': false,
+  };
+  Map<String, String> _errorStates = {
+    'new_thought': '',
+    'theory': '',
+  };
+  
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadKnowledgeData('new_thought');
+    _loadKnowledgeData('theory');
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  // API方法
+
+  Future<void> _loadKnowledgeData(String category) async {
+    setState(() {
+      _loadingStates[category] = true;
+      _errorStates[category] = '';
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('http://10.0.2.2:8000/api/knowledge-quiz/knowledge/?category=$category'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            _knowledgeData[category] = data['data']['knowledge_list'] ?? [];
+            _loadingStates[category] = false;
+          });
+        } else {
+          setState(() {
+            _errorStates[category] = '获取知识数据失败';
+            _loadingStates[category] = false;
+          });
+        }
+      } else {
+        setState(() {
+          _errorStates[category] = '网络请求失败';
+          _loadingStates[category] = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorStates[category] = '请求异常: $e';
+        _loadingStates[category] = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: CustomScrollView(
-        slivers: [
-          // 内容区域
-          SliverPadding(
-            padding: const EdgeInsets.all(16.0),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                // 马克思主义原理板块
-                _buildSectionCard(
-                  title: '马克思主义原理',
-                  icon: Icons.psychology,
-                  color: Colors.blue[600]!,
-                  items: ['辩证唯物主义', '历史唯物主义', '政治经济学', '科学社会主义'],
-                ),
-
-                const SizedBox(height: 16),
-
-                // 红色理论板块
-                _buildSectionCard(
-                  title: '红色理论',
-                  icon: Icons.lightbulb,
-                  color: Colors.red[600]!,
-                  items: [
-                    '毛泽东思想',
-                    '邓小平理论',
-                    '三个代表重要思想',
-                    '科学发展观',
-                    '习近平新时代中国特色社会主义思想',
+      body: NestedScrollView(
+        headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
+          return <Widget>[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    _buildFunctionBlocks(),
+                    const SizedBox(height: 20),
+                    _buildTabBar(),
+                    const SizedBox(height: 16),
                   ],
                 ),
+              ),
+            ),
+          ];
+        },
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildListContent('new_thought'),
+            _buildListContent('theory'),
+          ],
+        ),
+      ),
+    );
+  }
 
-                const SizedBox(height: 16),
-
-                // 学习测试板块
-                _buildTestCard(),
-
-                const SizedBox(height: 16),
-
-                // 学习统计
-                _buildStatsCard(),
-
-                const SizedBox(height: 100), // 底部留白
-              ]),
+  // 功能区块
+  Widget _buildFunctionBlocks() {
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.4,
+      child: Column(
+        children: [
+          // 第一行：知识挑战和每日一答
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildFunctionCard(
+                    title: '知识挑战',
+                    icon: Icons.emoji_events,
+                    color: Colors.amber[600]!,
+                    onTap: () {},
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildFunctionCard(
+                    title: '每日一答',
+                    icon: Icons.quiz,
+                    color: Colors.blue[600]!,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const DailyQuestionPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // 第二行：最近学习（全宽）
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildFunctionCard(
+                    title: '最近学习',
+                    icon: Icons.history,
+                    color: Colors.green[600]!,
+                    onTap: () {},
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -57,223 +176,201 @@ class KnowledgePage extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionCard({
+  Widget _buildFunctionCard({
     required String title,
     required IconData icon,
     required Color color,
-    required List<String> items,
+    required VoidCallback onTap,
   }) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: color, size: 24),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
-            const SizedBox(height: 16),
-            ...items
-                .map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(Icons.arrow_right, color: color, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '学习',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: color,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-                .toList(),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTestCard() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
+  // TabBar
+  Widget _buildTabBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TabBar(
+        controller: _tabController,
+        indicator: BoxDecoration(
+          color: Colors.red[600],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        indicatorSize: TabBarIndicatorSize.tab,
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.grey[600],
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+        tabs: const [
+          Tab(text: '新思想'),
+          Tab(text: '知识理论'),
+        ],
+      ),
+    );
+  }
+
+  // 列表内容
+  Widget _buildListContent(String category) {
+    if (_loadingStates[category]!) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_errorStates[category]!.isNotEmpty) {
+      return Center(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.quiz, color: Colors.green, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  '知识测试',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green,
-                  ),
-                ),
-              ],
+            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              _errorStates[category]!,
+              style: TextStyle(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-            const Text(
-              '检验学习成果，巩固理论知识',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ElevatedButton(
+              onPressed: () => _loadKnowledgeData(category),
+              child: const Text('重试'),
             ),
+          ],
+        ),
+      );
+    }
+
+    final knowledgeList = _knowledgeData[category]!;
+    if (knowledgeList.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('开始测试'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+            Text(
+              '暂无知识内容',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      itemCount: knowledgeList.length,
+      itemBuilder: (context, index) {
+        final knowledge = knowledgeList[index];
+        return _buildKnowledgeCard(knowledge, category);
+      },
+    );
+  }
+
+  Widget _buildKnowledgeCard(Map<String, dynamic> knowledge, String category) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => KnowledgeDetailPage(knowledge: knowledge),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      knowledge['title'] ?? '无标题',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      knowledge['source'] ?? '未知来源',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
                       ),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.history),
-                    label: const Text('历史记录'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.green,
-                      side: const BorderSide(color: Colors.green),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatsCard() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.analytics,
-                    color: Colors.orange,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  '学习统计',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: _buildStatItem('学习天数', '28', '天')),
-                Expanded(child: _buildStatItem('完成课程', '15', '门')),
-                Expanded(child: _buildStatItem('测试通过', '12', '次')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value, String unit) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.orange,
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey[400],
+              ),
+            ],
           ),
         ),
-        Text(unit, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
+      ),
     );
   }
+
+
+
 }
