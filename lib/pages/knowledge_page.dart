@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'daily_question_page.dart';
 import 'knowledge_detail_page.dart';
+import '../config/api_config.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({super.key});
@@ -53,8 +54,9 @@ class _KnowledgePageState extends State<KnowledgePage>
     });
 
     try {
+      final baseUrl = await ApiConfig.knowledgeQuizBaseUrl;
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/api/knowledge-quiz/knowledge/?category=$category'),
+        Uri.parse('$baseUrl/knowledge/?category=$category'),
         headers: {'Content-Type': 'application/json'},
       );
 

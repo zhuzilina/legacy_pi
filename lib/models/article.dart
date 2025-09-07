@@ -213,8 +213,29 @@ class Article {
         .trim();
   }
 
-  // 解析内容为结构化内容项列表
-  List<ContentItem> parseContentItems() {
+  // 解析内容为结构化内容项列表（支持缓存）
+  Future<List<ContentItem>> parseContentItems({dynamic cacheService}) async {
+    // 如果有缓存服务，先尝试从缓存获取
+    if (cacheService != null) {
+      final cachedContent = cacheService.textCacheService.getCachedContent(id, content);
+      if (cachedContent != null) {
+        return cachedContent;
+      }
+    }
+    
+    // 缓存中没有，解析内容
+    final parsedContent = await _parseContentItemsInternal();
+    
+    // 如果有缓存服务，保存到缓存
+    if (cacheService != null) {
+      cacheService.textCacheService.setCachedContent(id, content, parsedContent);
+    }
+    
+    return parsedContent;
+  }
+
+  // 内部解析方法
+  Future<List<ContentItem>> _parseContentItemsInternal() async {
     if (content.isEmpty) return [];
     
     final items = <ContentItem>[];
@@ -253,7 +274,7 @@ class Article {
         }
         
         // 转换图片URL为完整URL
-        final fullImageUrl = _convertImageUrl(imageUrl);
+        final fullImageUrl = await _convertImageUrl(imageUrl);
         
         if (imageDescription != null && imageDescription.isNotEmpty) {
           items.add(ContentItem.imageWithText(fullImageUrl, imageAlt, imageDescription));
@@ -286,17 +307,21 @@ class Article {
   }
   
   // 转换图片URL为完整URL
-  String _convertImageUrl(String originalUrl) {
-    // 使用统一的API配置
-    final baseUrl = ApiConfig.baseUrl;
-    
+  Future<String> _convertImageUrl(String originalUrl) async {
     // 如果已经是完整URL，直接返回
     if (originalUrl.startsWith('http')) {
       return originalUrl;
     }
     
-    // 如果是相对路径，转换为完整URL
+    // 如果是新闻API的图片路径，转换为完整URL
     if (originalUrl.startsWith('/api/crawler/image/')) {
+      final baseUrl = await ApiConfig.baseUrl;
+      return '$baseUrl$originalUrl';
+    }
+    
+    // 如果是MD文档的图片路径，转换为完整URL
+    if (originalUrl.startsWith('/api/md-docs/image/')) {
+      final baseUrl = await ApiConfig.baseUrl;
       return '$baseUrl$originalUrl';
     }
     
@@ -356,6 +381,9 @@ class Article {
     // 移除HTML标签
     cleanedText = cleanedText.replaceAll(RegExp(r'<[^>]+>'), '');
     
+    // 修复TTS朗读问题：处理冒号等标点符号
+    cleanedText = _fixTtsPunctuation(cleanedText);
+    
     // 清理多余的空行和空格
     cleanedText = cleanedText
         .replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n') // 多个空行变为两个
@@ -367,5 +395,100 @@ class Article {
     cleanedText = cleanedText.replaceAll(RegExp(r'\n\s*\n'), '\n\n');
     
     return cleanedText;
+  }
+
+  /// 修复TTS朗读标点符号问题
+  static String _fixTtsPunctuation(String text) {
+    String fixedText = text;
+    
+    // 处理中文数字标题，避免TTS误读
+    // 将"一、二、三"等中文数字标题转换为更清晰的表达
+    fixedText = fixedText.replaceAllMapped(RegExp(r'^([一二三四五六七八九十]+)、(.+)$', multiLine: true), (match) {
+      final chineseNum = match.group(1) ?? '';
+      final content = match.group(2) ?? '';
+      
+      // 将中文数字转换为阿拉伯数字，避免TTS误读
+      final numMap = {
+        '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
+        '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'
+      };
+      
+      String arabicNum = chineseNum;
+      for (final entry in numMap.entries) {
+        arabicNum = arabicNum.replaceAll(entry.key, entry.value);
+      }
+      
+      return '第$arabicNum点，$content';
+    });
+    
+    // 处理冒号问题：在冒号前后添加适当的分隔
+    // 例如："宣传思想文化工作的战略定位：习" -> "宣传思想文化工作的战略定位，习"
+    fixedText = fixedText.replaceAllMapped(RegExp(r'([^：:，,。.！!？?；;])([：:])([^：:，,。.！!？?；;\s])'), (match) {
+      final before = match.group(1) ?? '';
+      final colon = match.group(2) ?? '';
+      final after = match.group(3) ?? '';
+      
+      // 如果冒号前面是中文，后面也是中文，用逗号替换冒号
+      if (_isChinese(before) && _isChinese(after)) {
+        return '$before，$after';
+      }
+      // 否则保持原样，但确保有适当的分隔
+      return '$before$colon $after';
+    });
+    
+    // 处理其他可能导致TTS朗读问题的标点符号
+    // 处理分号：用句号替换，确保停顿
+    fixedText = fixedText.replaceAll(RegExp(r'；'), '。');
+    
+    // 处理多个连续标点符号，只保留一个
+    fixedText = fixedText.replaceAll(RegExp(r'([。！？])\1+'), r'$1');
+    
+    // 处理括号内容，确保TTS能正确朗读
+    fixedText = fixedText.replaceAllMapped(RegExp(r'[（(]([^）)]+)[）)]'), (match) {
+      final content = match.group(1) ?? '';
+      return '，$content，';
+    });
+    
+    // 处理引号内容
+    fixedText = fixedText.replaceAllMapped(RegExp(r'[""「」『』]([^""「」『』]+)[""「」『』]'), (match) {
+      final content = match.group(1) ?? '';
+      return '，$content，';
+    });
+    
+    // 确保数字和中文之间有适当的分隔
+    fixedText = fixedText.replaceAllMapped(RegExp(r'(\d+)([一二三四五六七八九十百千万亿])'), (match) {
+      final number = match.group(1) ?? '';
+      final chinese = match.group(2) ?? '';
+      return '$number $chinese';
+    });
+    
+    // 确保英文字母和中文之间有适当的分隔
+    fixedText = fixedText.replaceAllMapped(RegExp(r'([a-zA-Z]+)([一-龯])'), (match) {
+      final english = match.group(1) ?? '';
+      final chinese = match.group(2) ?? '';
+      return '$english $chinese';
+    });
+    
+    fixedText = fixedText.replaceAllMapped(RegExp(r'([一-龯])([a-zA-Z]+)'), (match) {
+      final chinese = match.group(1) ?? '';
+      final english = match.group(2) ?? '';
+      return '$chinese $english';
+    });
+    
+    return fixedText;
+  }
+
+  /// 判断字符是否为中文
+  static bool _isChinese(String char) {
+    if (char.isEmpty) return false;
+    final codeUnit = char.codeUnitAt(0);
+    return (codeUnit >= 0x4E00 && codeUnit <= 0x9FFF) || // CJK统一汉字
+           (codeUnit >= 0x3400 && codeUnit <= 0x4DBF) || // CJK扩展A
+           (codeUnit >= 0x20000 && codeUnit <= 0x2A6DF) || // CJK扩展B
+           (codeUnit >= 0x2A700 && codeUnit <= 0x2B73F) || // CJK扩展C
+           (codeUnit >= 0x2B740 && codeUnit <= 0x2B81F) || // CJK扩展D
+           (codeUnit >= 0x2B820 && codeUnit <= 0x2CEAF) || // CJK扩展E
+           (codeUnit >= 0xF900 && codeUnit <= 0xFAFF) || // CJK兼容汉字
+           (codeUnit >= 0x2F800 && codeUnit <= 0x2FA1F); // CJK兼容补充
   }
 }

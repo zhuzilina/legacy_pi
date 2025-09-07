@@ -1,13 +1,18 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'dart:collection';
-import 'package:flutter/foundation.dart';
 import 'unified_cache_service.dart';
 import '../config/api_config.dart';
 
 class AiService {
   // 使用统一的API配置
-  static String get _baseUrl => ApiConfig.aiBaseUrl;
+  static String? _baseUrl;
+  
+  static Future<String> get baseUrl async {
+    if (_baseUrl == null) {
+      _baseUrl = await ApiConfig.aiInterpretationBaseUrl;
+    }
+    return _baseUrl!;
+  }
   final UnifiedCacheService _cacheService = UnifiedCacheService();
   
   /// 从缓存获取结果
@@ -45,8 +50,9 @@ class AiService {
       
       print('AI服务调用 - 文本长度: ${text.length}, 最大tokens: $maxTokens');
       
+      final base = await baseUrl;
       final response = await http.post(
-        Uri.parse('$_baseUrl/interpret/'),
+        Uri.parse('$base/interpret/'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -88,8 +94,8 @@ class AiService {
   }
   
   /// 获取缓存统计信息
-  Map<String, dynamic> getCacheStats() {
-    return _cacheService.getCacheStats();
+  Future<Map<String, dynamic>> getCacheStats() async {
+    return await _cacheService.getCacheStats();
   }
   
   /// 从缓存中移除特定条目

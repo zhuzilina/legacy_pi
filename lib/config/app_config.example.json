@@ -1,0 +1,18 @@
+{
+  "api": {
+    "baseUrl": "http://your-server-ip",
+    "port": "",
+    "endpoints": {
+      "aiChat": "/api/ai-chat",
+      "aiInterpretation": "/api/ai",
+      "mdDocs": "/api/md-docs",
+      "knowledgeQuiz": "/api/knowledge-quiz",
+      "tts": "/api/tts",
+      "crawler": "/api/crawler"
+    }
+  },
+  "environment": {
+    "isProduction": false,
+    "debugMode": true
+  }
+}

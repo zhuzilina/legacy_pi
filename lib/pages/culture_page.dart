@@ -1,32 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/widgets/ai_interpretation_dialog.dart';
 import 'package:legacy_pi/widgets/key_points_dialog.dart';
-import 'package:legacy_pi/widgets/floating_action_buttons.dart';
 import 'package:legacy_pi/pages/chat_page.dart';
+import 'package:defer_pointer/defer_pointer.dart';
 import 'dart:async';
 import '../services/news_api_service.dart';
 import '../services/ai_service.dart';
 import '../services/unified_cache_service.dart';
+import '../services/md_docs_api_service.dart';
+import '../models/content_item.dart';
 import '../models/article.dart';
 import '../widgets/rich_content_widget.dart';
+import '../widgets/keep_alive_category_view.dart';
 import '../l10n/app_localizations.dart';
 
 class CulturePage extends StatefulWidget {
   const CulturePage({super.key});
 
   @override
-  State<CulturePage> createState() => _CulturePageState();
+  State<CulturePage> createState() => CulturePageState();
 }
 
-class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin {
+class CulturePageState extends State<CulturePage> with TickerProviderStateMixin {
   final UnifiedCacheService _cacheService = UnifiedCacheService();
   late TabController _tabController;
-  final PageController _pageController = PageController();
-  int _currentPage = 0;
+  
+  // 每个分类的页面位置状态
+  final Map<String, int> _categoryPageIndexMap = {};
+  
+  // 每个分类的KeepAliveCategoryView实例
+  final Map<String, GlobalKey<KeepAliveCategoryViewState>> _categoryViewKeys = {};
   
      // API 服务
    final NewsApiService _newsApiService = NewsApiService();
    final AiService _aiService = AiService();
+   final MdDocsApiService _mdDocsApiService = MdDocsApiService();
    
      // 分类数据
   late List<String> _categories;
@@ -36,9 +44,6 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
   final Map<String, bool> _isLoadingMap = {};
   final Map<String, String> _errorMessageMap = {};
   final Map<String, List<Article>> _articlesMap = {};
-  
-  // 悬浮按钮管理器
-  FloatingActionButtonsManager? _floatingButtonsManager;
   
   // 统一配色方案：白底黑字
   final Color _backgroundColor = Colors.white;
@@ -50,10 +55,8 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
   void initState() {
     super.initState();
     
-    // 延迟初始化悬浮按钮，确保在 build 完成后执行
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeFloatingButtons();
-    });
+    // 恢复页面状态
+    _restorePageState();
   }
   
   @override
@@ -79,8 +82,9 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
         _articlesMap[category] = [];
       }
       
-      // 加载默认分类（新闻）的数据
-      _loadArticlesForCategory(_categories[0]);
+      // 检查是否需要加载默认分类（新闻）的数据
+      // 只有在没有缓存状态时才加载默认数据
+      _checkAndLoadDefaultData();
       
       // 监听Tab切换
       _tabController.addListener(_onTabChanged);
@@ -89,88 +93,98 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
 
   @override
   void dispose() {
+    // 保存页面状态
+    _savePageState();
+    
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
-    _pageController.dispose();
-    // 销毁悬浮按钮管理器
-    _floatingButtonsManager?.dispose();
     super.dispose();
   }
   
-  // 初始化悬浮按钮
-  void _initializeFloatingButtons() {
-    if (_floatingButtonsManager != null) return;
-    
-    final buttonConfigs = FloatingActionButtonsBuilder.buildArticleButtons(
-      context: context,
-      onStudyFullText: _onStudyFullText,
-      onSummarizeKeyPoints: _onSummarizeKeyPoints,
-      onEnterConversation: _onEnterConversation,
-    );
-    
-    _floatingButtonsManager = FloatingActionButtonsManager(
-      context: context,
-      buttonConfigs: buttonConfigs,
-      bottomOffset: 187,
-      rightOffset: 20,
-    );
-    
-    _floatingButtonsManager!.show();
-  }
-  
-  // 更新悬浮按钮
-  void _updateFloatingButtons() {
-    _floatingButtonsManager?.update();
-  }
-  
-  // 隐藏悬浮按钮
-  void _hideFloatingButtons() {
-    _floatingButtonsManager?.hide();
-  }
-  
-  // 显示悬浮按钮
-  void _showFloatingButtons() {
-    _floatingButtonsManager?.show();
-  }
-  
-  // 悬浮按钮回调方法
-  void _onStudyFullText() {
-    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+  // 悬浮按钮回调方法 - 现在由主页调用
+  void handleStudyFullText() {
+    final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
       _showAiInterpretationDialog(currentArticle);
     }
   }
   
-  void _onSummarizeKeyPoints() {
-    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+  void handleSummarizeKeyPoints() {
+    final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
       _showKeyPointsDialog(currentArticle);
     }
   }
   
-  void _onEnterConversation() {
-    final currentArticle = _articlesMap[_categories[_currentTabIndex]]?[_currentPage];
+  void handleEnterConversation() {
+    final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
       _navigateToChatPage(currentArticle);
     }
   }
+
+  // 获取当前文章
+  Article? _getCurrentArticle() {
+    if (_currentTabIndex >= 0 && _currentTabIndex < _categories.length) {
+      final category = _categories[_currentTabIndex];
+      final articles = _articlesMap[category] ?? [];
+      if (articles.isNotEmpty) {
+        // 从KeepAliveCategoryView获取当前页面位置
+        final viewKey = _categoryViewKeys[category];
+        if (viewKey?.currentState != null) {
+          final currentPage = viewKey!.currentState!.getCurrentPage();
+          if (currentPage >= 0 && currentPage < articles.length) {
+            return articles[currentPage];
+          }
+        }
+      }
+    }
+    return null;
+  }
   
   void _onTabChanged() {
     if (_tabController.indexIsChanging) {
+      final oldIndex = _currentTabIndex;
       final newIndex = _tabController.index;
-      setState(() {
-        _currentTabIndex = newIndex;
-        _currentPage = 0; // 重置页面索引
-      });
       
-      // 如果该分类还没有数据，则加载
-      final category = _categories[newIndex];
-      if (_articlesMap[category]!.isEmpty && !_isLoadingMap[category]!) {
-        _loadArticlesForCategory(category);
+      // 保存当前分类的页面位置
+      if (oldIndex >= 0 && oldIndex < _categories.length) {
+        final oldCategory = _categories[oldIndex];
+        // 从KeepAliveCategoryView获取当前页面位置
+        final oldViewKey = _categoryViewKeys[oldCategory];
+        if (oldViewKey?.currentState != null) {
+          final currentPage = oldViewKey!.currentState!.getCurrentPage();
+          _categoryPageIndexMap[oldCategory] = currentPage;
+          print('保存分类 $oldCategory 的页面位置: $currentPage');
+        }
       }
       
-      // 更新悬浮按钮
-      _updateFloatingButtons();
+      setState(() {
+        _currentTabIndex = newIndex;
+      });
+      
+      // 恢复新分类的页面位置
+      final newCategory = _categories[newIndex];
+      final savedPageIndex = _categoryPageIndexMap[newCategory] ?? 0;
+      
+      print('切换到分类 $newCategory，恢复页面位置: $savedPageIndex');
+      
+      // 如果该分类还没有数据，则加载
+      if (_articlesMap[newCategory]!.isEmpty && !_isLoadingMap[newCategory]!) {
+        _loadArticlesForCategory(newCategory);
+      }
+      
+      // 延迟设置新分类的页面位置，确保KeepAliveCategoryView已经构建完成
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final newViewKey = _categoryViewKeys[newCategory];
+        if (newViewKey?.currentState != null && savedPageIndex > 0) {
+          print('设置分类 $newCategory 的页面位置: $savedPageIndex');
+          newViewKey!.currentState!.setPagePosition(savedPageIndex);
+        }
+      });
+      
+      // 保存页面状态
+      _savePageState();
     }
   }
 
@@ -184,11 +198,12 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
     try {
       print('开始加载 $category 分类的文章数据...');
       
-      // 目前只有"新闻"分类有真实API，其他分类使用模拟数据
+      // 根据分类选择不同的数据源
       if (category == '新闻') {
         await _loadNewsArticles(category);
       } else {
-        await _loadMockArticles(category);
+        // 精神、人物、党史分类使用MD文档API
+        await _loadMdDocsArticles(category);
       }
       
     } catch (e) {
@@ -256,97 +271,247 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
       _errorMessageMap[category] = '';
     });
 
+    // 预加载文章中的图片
+    _preloadArticleImages(articles);
+
     print('$category 文章加载完成，共 ${articles.length} 篇');
   }
 
-  // 加载模拟数据（用于精神、人物、党史分类）
-  Future<void> _loadMockArticles(String category) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(seconds: 1));
-    
-    final mockArticles = _generateMockArticles(category);
-    
-    setState(() {
-      _articlesMap[category] = mockArticles;
-      _isLoadingMap[category] = false;
-      _errorMessageMap[category] = '';
-    });
-
-    print('$category 模拟文章加载完成，共 ${mockArticles.length} 篇');
-  }
-
-  // 生成模拟文章数据
-  List<Article> _generateMockArticles(String category) {
-    final mockData = {
-      '精神': [
-        {'title': '弘扬伟大建党精神', 'content': '中国共产党在长期奋斗中形成的伟大建党精神，是党的宝贵精神财富...'},
-        {'title': '传承红色基因', 'content': '红色基因是中国共产党人的精神内核，是激励我们不断前行的强大力量...'},
-        {'title': '践行初心使命', 'content': '为中国人民谋幸福，为中华民族谋复兴，是中国共产党人的初心和使命...'},
-      ],
-      '人物': [
-        {'title': '革命先烈的光辉事迹', 'content': '无数革命先烈为了民族独立和人民解放，献出了宝贵的生命...'},
-        {'title': '时代楷模的感人故事', 'content': '在新时代的征程中，涌现出许多可歌可泣的时代楷模...'},
-        {'title': '英雄模范的崇高品格', 'content': '英雄模范人物以其崇高的品格和无私的奉献，诠释了共产党人的初心...'},
-      ],
-      '党史': [
-        {'title': '中国共产党的光辉历程', 'content': '中国共产党自1921年成立以来，走过了波澜壮阔的百年历程...'},
-        {'title': '重大历史事件回顾', 'content': '在党的历史上，有许多具有重大意义的历史事件和重要节点...'},
-        {'title': '历史经验和启示', 'content': '党的百年历史为我们提供了丰富的历史经验和深刻的启示...'},
-      ],
-    };
-
-    final data = mockData[category] ?? [];
-    return data.asMap().entries.map((entry) {
-      final index = entry.key;
-      final item = entry.value;
-      final publishDate = DateTime.now().subtract(Duration(days: index));
-      return Article(
-        id: '${category}_mock_$index',
-        title: item['title']!,
-        source: '学习强国',
-        publishTime: publishDate.toString().split(' ')[0],
+  // 加载MD文档数据（用于精神、人物、党史分类）
+  Future<void> _loadMdDocsArticles(String category) async {
+    try {
+      print('开始从MD文档API加载 $category 分类数据...');
+      
+      // 获取文档ID列表
+      final response = await _mdDocsApiService.getDocumentIdsByCategory(
         category: category,
-        wordCount: 1000 + index * 200,
-        originalUrl: 'https://example.com/${category}_$index',
-        metaInfo: '来源：学习强国\n发布时间：${publishDate.toString().split(' ')[0]}',
-        content: item['content']! * 5, // 重复内容以模拟长文章
-        collectTime: DateTime.now().toString(),
       );
-    }).toList();
+      
+      if (response == null) {
+        setState(() {
+          _isLoadingMap[category] = false;
+          _errorMessageMap[category] = '无法连接到MD文档服务器';
+        });
+        return;
+      }
+      
+      if (response.msg != 'success') {
+        setState(() {
+          _isLoadingMap[category] = false;
+          _errorMessageMap[category] = response.error ?? '获取MD文档ID列表失败';
+        });
+        return;
+      }
+      
+      if (response.articleIds.isEmpty) {
+        setState(() {
+          _isLoadingMap[category] = false;
+          _errorMessageMap[category] = '暂无可用文档';
+        });
+        return;
+      }
+      
+      print('获取到 ${response.articleIds.length} 个文档ID');
+      
+      // 批量获取文档内容
+      final articles = <Article>[];
+      for (final documentId in response.articleIds) {
+        try {
+          // 获取完整文档内容
+          final content = await _mdDocsApiService.getDocumentContent(documentId);
+          if (content != null) {
+            // 使用Article的fromMarkdown方法解析内容
+            final article = _mdDocsApiService.convertToArticle(documentId, content);
+            articles.add(article);
+          } else {
+            print('获取文档 $documentId 内容失败');
+          }
+        } catch (e) {
+          print('获取文档 $documentId 内容失败: $e');
+        }
+      }
+      
+      setState(() {
+        _articlesMap[category] = articles;
+        _isLoadingMap[category] = false;
+        _errorMessageMap[category] = '';
+      });
+      
+      // 预加载文章中的图片
+      _preloadArticleImages(articles);
+      
+      print('$category MD文档加载完成，共 ${articles.length} 篇');
+      
+    } catch (e) {
+      print('加载 $category MD文档时发生错误: $e');
+      setState(() {
+        _isLoadingMap[category] = false;
+        _errorMessageMap[category] = '加载MD文档时发生错误: $e';
+      });
+    }
+  }
+
+  // 检查并加载默认数据
+  Future<void> _checkAndLoadDefaultData() async {
+    try {
+      // 检查是否有保存的状态
+      final state = await _cacheService.pageStateCacheService.getCulturePageState();
+      
+      if (state != null) {
+        // 有保存的状态，不需要加载默认数据
+        print('检测到保存的页面状态，跳过默认数据加载');
+        return;
+      }
+      
+      // 没有保存的状态，加载默认分类（新闻）的数据
+      print('没有保存的页面状态，加载默认数据');
+      _loadArticlesForCategory(_categories[0]);
+    } catch (e) {
+      print('检查默认数据加载失败: $e');
+      // 出错时加载默认数据
+      _loadArticlesForCategory(_categories[0]);
+    }
   }
 
 
+  // 预加载文章中的图片
+  Future<void> _preloadArticleImages(List<Article> articles) async {
+    try {
+      // 收集所有文章中的图片URL
+      final imageUrls = <String>[];
+      for (final article in articles) {
+        // 解析文章内容，提取图片URL
+        final contentItems = await article.parseContentItems(cacheService: _cacheService);
+        for (final item in contentItems) {
+          if (item.type == ContentItemType.image || item.type == ContentItemType.imageWithText) {
+            if (item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+              imageUrls.add(item.imageUrl!);
+            }
+          }
+        }
+      }
+      
+      if (imageUrls.isNotEmpty) {
+        print('开始预加载 ${imageUrls.length} 张图片...');
+        // 使用统一缓存服务预加载图片
+        await _cacheService.preloadArticleImages(imageUrls);
+        print('图片预加载完成');
+      }
+    } catch (e) {
+      print('预加载图片失败: $e');
+    }
+  }
+
+  // 保存页面状态
+  Future<void> _savePageState() async {
+    try {
+      // 保存当前分类的页面位置到内存映射
+      if (_categories.isNotEmpty && _currentTabIndex < _categories.length) {
+        final currentCategory = _categories[_currentTabIndex];
+        // 从KeepAliveCategoryView获取当前页面位置
+        final viewKey = _categoryViewKeys[currentCategory];
+        if (viewKey?.currentState != null) {
+          final currentPage = viewKey!.currentState!.getCurrentPage();
+          _categoryPageIndexMap[currentCategory] = currentPage;
+          
+          // 保存分类页面位置映射到持久化存储
+          await _cacheService.pageStateCacheService.saveCategoryPagePositions(_categoryPageIndexMap);
+          
+          await _cacheService.pageStateCacheService.saveCulturePageState(
+            bottomTabIndex: 1, // 文化页面在底部TabBar中的索引
+            pageTabIndex: _currentTabIndex,
+            currentPageIndex: currentPage,
+            currentCategory: currentCategory,
+          );
+          
+          // 状态变化由KeepAliveCategoryView自动管理，不需要通知父组件
+          
+          print('文化页面状态已保存: 底部Tab=1, 页面Tab=$_currentTabIndex, 当前页=$currentPage, 分类=$currentCategory');
+        }
+      }
+    } catch (e) {
+      print('保存页面状态失败: $e');
+    }
+  }
+
+  // 恢复页面状态
+  Future<void> _restorePageState() async {
+    try {
+      // 恢复分类页面位置映射
+      final categoryPagePositions = await _cacheService.pageStateCacheService.getCategoryPagePositions();
+      _categoryPageIndexMap.addAll(categoryPagePositions);
+      print('恢复分类页面位置映射: $categoryPagePositions');
+      
+      final state = await _cacheService.pageStateCacheService.getCulturePageState();
+      if (state != null) {
+        final pageTabIndex = state['pageTabIndex'] as int? ?? 0;
+        final currentPageIndex = state['currentPageIndex'] as int? ?? 0;
+        final currentCategory = state['currentCategory'] as String? ?? '';
+        
+        // 确保索引在有效范围内
+        if (pageTabIndex >= 0 && pageTabIndex < _categories.length) {
+          setState(() {
+            _currentTabIndex = pageTabIndex;
+          });
+          
+          // 如果TabController已初始化，设置正确的索引
+          if (_tabController.length > 0 && pageTabIndex < _tabController.length) {
+            _tabController.index = pageTabIndex;
+          }
+          
+          // 确保对应分类的数据已加载
+          final category = _categories[pageTabIndex];
+          if (_articlesMap[category]!.isEmpty && !_isLoadingMap[category]!) {
+            print('恢复状态时加载分类数据: $category');
+            _loadArticlesForCategory(category);
+          }
+          
+          // 延迟设置页面位置，确保KeepAliveCategoryView已经构建完成
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final viewKey = _categoryViewKeys[category];
+            if (viewKey?.currentState != null && currentPageIndex > 0) {
+              print('状态恢复：设置分类 $category 的页面位置: $currentPageIndex');
+              viewKey!.currentState!.setPagePosition(currentPageIndex);
+            }
+          });
+          
+          print('页面状态已恢复: Tab=$pageTabIndex, Page=$currentPageIndex, Category=$currentCategory');
+        }
+      }
+    } catch (e) {
+      print('恢复页面状态失败: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        backgroundColor: _backgroundColor,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        toolbarHeight: 0, // 减少AppBar高度
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48), // 设置TabBar高度
-          child: TabBar(
-            controller: _tabController,
-            tabs: _categories.map((category) => Tab(
-              text: category,
-            )).toList(),
-            labelColor: _textColor,
-            unselectedLabelColor: _textColor.withOpacity(0.6),
-            indicatorColor: _textColor,
-            indicatorWeight: 2,
-            labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            unselectedLabelStyle: const TextStyle(fontSize: 16),
-          ),
-        ),
-      ),
-      body: Stack(
+    return Container(
+      color: _backgroundColor,
+      child: Column(
         children: [
-          TabBarView(
-            controller: _tabController,
-            children: _categories.map((category) => _buildCategoryView(category)).toList(),
+          // TabBar
+          Container(
+            height: 48,
+            color: _backgroundColor,
+            child: TabBar(
+              controller: _tabController,
+              tabs: _categories.map((category) => Tab(
+                text: category,
+              )).toList(),
+              labelColor: _textColor,
+              unselectedLabelColor: _textColor.withOpacity(0.6),
+              indicatorColor: _textColor,
+              indicatorWeight: 2,
+              labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              unselectedLabelStyle: const TextStyle(fontSize: 16),
+            ),
+          ),
+          // TabBarView
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: _categories.map((category) => _buildCategoryView(category)).toList(),
+            ),
           ),
         ],
       ),
@@ -359,323 +524,25 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
     final errorMessage = _errorMessageMap[category] ?? '';
     final articles = _articlesMap[category] ?? [];
 
-    // 主要内容
-    if (isLoading) {
-      return _buildLoadingView(category);
-    } else if (errorMessage.isNotEmpty) {
-      return _buildErrorView(category);
-    } else if (articles.isEmpty) {
-      return _buildEmptyView(category);
-    } else {
-      return _buildArticlePageView(articles);
+    // 为每个分类创建唯一的GlobalKey
+    if (!_categoryViewKeys.containsKey(category)) {
+      _categoryViewKeys[category] = GlobalKey<KeepAliveCategoryViewState>();
     }
-  }
 
-  // 加载状态视图
-  Widget _buildLoadingView(String category) {
-    final errorMessage = _errorMessageMap[category] ?? '';
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: _backgroundColor,
-      child: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(_textColor),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                errorMessage.isNotEmpty ? errorMessage : AppLocalizations.of(context)!.loadingContent(category),
-                style: TextStyle(
-                  fontSize: 16,
-                  color: _textColor.withOpacity(0.6),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
+    return KeepAliveCategoryView(
+      key: _categoryViewKeys[category],
+      category: category,
+      articles: articles,
+      isLoading: isLoading,
+      errorMessage: errorMessage,
+      cacheService: _cacheService,
+      onShowFullContent: _showFullContentDialog,
+      onShowAiInterpretation: (article) => _showAiInterpretationDialog(article),
+      onShowKeyPoints: _showKeyPointsDialog,
+      onNavigateToChat: _navigateToChatPage,
     );
   }
 
-  // 错误状态视图
-  Widget _buildErrorView(String category) {
-    final errorMessage = _errorMessageMap[category] ?? '';
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: _backgroundColor,
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Colors.red[400],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  AppLocalizations.of(context)!.loadFailed,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _textColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  errorMessage,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: _textColor.withOpacity(0.6),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: () => _loadArticlesForCategory(category),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _textColor,
-                    foregroundColor: _backgroundColor,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  ),
-                  child: Text(AppLocalizations.of(context)!.retry),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 空状态视图
-  Widget _buildEmptyView(String category) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: _backgroundColor,
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.article_outlined,
-                  size: 64,
-                  color: _textColor.withOpacity(0.4),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  AppLocalizations.of(context)!.noContent(category),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _textColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  AppLocalizations.of(context)!.noContentDescription(category),
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: _textColor.withOpacity(0.6),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: () => _loadArticlesForCategory(category),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red[700],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  ),
-                  child: Text(AppLocalizations.of(context)!.refresh),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 文章页面视图
-  Widget _buildArticlePageView(List<Article> articles) {
-    return PageView.builder(
-      controller: _pageController,
-      scrollDirection: Axis.vertical,
-      onPageChanged: (int page) {
-        setState(() {
-          _currentPage = page;
-        });
-        // 更新悬浮按钮
-        _updateFloatingButtons();
-      },
-      itemCount: articles.length,
-      itemBuilder: (context, index) {
-        final article = articles[index];
-        
-        return Stack(
-          children: [
-            // 主要内容区域
-            Container(
-              width: double.infinity,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                color: _backgroundColor,
-              ),
-              child: SafeArea(
-      child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 100.0), // 底部留出空间给覆盖层
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-                      // 正文内容（富文本，不可滚动，固定高度）
-                      Expanded(
-                        child: Stack(
-              children: [
-                            // 内容区域
-                            ClipRect(
-                              child: RichContentWidget(
-                                contentItems: article.parseContentItems(),
-                                textStyle: TextStyle(
-                                  fontSize: 24, // 增大字体到24
-                                  height: 1.6,
-                                  color: _textColor,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                                textColor: _textColor,
-                                enableScrolling: false, // 禁用滚动
-                                article: article, // 传递文章对象
-                                contextText: article.content, // 传递文章内容作为上下文
-                              ),
-                            ),
-                            // 渐变遮罩和查看更多按钮
-                            Positioned(
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              child: Container(
-                                height: 80,
-                  decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      _backgroundColor.withOpacity(0.0),
-                                      _backgroundColor.withOpacity(0.7),
-                                      _backgroundColor.withOpacity(0.95),
-                                    ],
-                                  ),
-                                ),
-                                child: Center(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _showFullContentDialog(article),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _textColor,
-                                      foregroundColor: _backgroundColor,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 20,
-                                        vertical: 10,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.expand_more, size: 20),
-                                    label: Text(
-                                      AppLocalizations.of(context)!.viewMore,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                                             // 滑动提示已移除
-                const SizedBox(height: 16),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 底部简化覆盖层
-            _buildSimplifiedBottomOverlay(article),
-          ],
-        );
-      },
-    );
-  }
-  // 简化的底部覆盖层（只显示标题和来源）
-  Widget _buildSimplifiedBottomOverlay(Article article) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              _backgroundColor.withOpacity(0.0),
-              _backgroundColor.withOpacity(0.85),
-              _backgroundColor.withOpacity(0.95),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(24.0, 16.0, 24.0, 16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 文章标题（大号字体）
-                Text(
-                  article.title,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _textColor,
-                    height: 1.2,
-                  ),
-                  maxLines: 2, // 最多显示2行
-                  overflow: TextOverflow.ellipsis, // 超出省略
-                ),
-                const SizedBox(height: 8),
-                // 来源信息（小号字体）
-                Text(
-                  AppLocalizations.of(context)!.source(article.source),
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: _textColor.withOpacity(0.7),
-                    fontWeight: FontWeight.w400,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
            // 显示全文内容对话框
      void _showFullContentDialog(Article article) {
@@ -696,6 +563,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
                  scale: scale,
                  child: _FullContentDialog(
                    article: article,
+                   cacheService: _cacheService,
                    onClose: () {
                      Navigator.of(context).pop();
                    },
@@ -715,9 +583,6 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
      
      // 显示AI解读对话框
      void _showAiInterpretationDialog(Article article, {String promptType = 'summary'}) {
-       // 隐藏悬浮按钮
-       _hideFloatingButtons();
-       
        Navigator.of(context).push(
          PageRouteBuilder(
            opaque: false,
@@ -748,17 +613,11 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
              );
            },
          ),
-       ).then((_) {
-         // 弹窗关闭后显示悬浮按钮
-         _showFloatingButtons();
-       });
+       );
      }
      
      // 显示总结要点对话框（内容撑开高度）
      void _showKeyPointsDialog(Article article) {
-       // 隐藏悬浮按钮
-       _hideFloatingButtons();
-       
        Navigator.of(context).push(
          PageRouteBuilder(
            opaque: false,
@@ -789,10 +648,7 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
              );
            },
          ),
-       ).then((_) {
-         // 弹窗关闭后显示悬浮按钮
-         _showFloatingButtons();
-       });
+       );
      }
      
      // 导航到对话页面
@@ -812,105 +668,147 @@ class _CulturePageState extends State<CulturePage> with TickerProviderStateMixin
 /// 全文内容对话框Widget（恢复原来的查看更多功能）
 class _FullContentDialog extends StatelessWidget {
   final Article article;
+  final UnifiedCacheService cacheService;
   final VoidCallback? onClose;
 
   const _FullContentDialog({
     required this.article,
+    required this.cacheService,
     this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.9,
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            // 对话框头部
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      article.title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
+    return Material(
+      type: MaterialType.transparency,
+      child: DeferredPointerHandler( // 包裹根组件，处理超出边界的点击事件
+        child: Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: Colors.black54,
+          child: Center(
+            child: Stack(
+              clipBehavior: Clip.none, // 允许子元素移出Stack边界
+              children: [
+                Container(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  height: MediaQuery.of(context).size.height * 0.72, // 调整为屏幕高度的72%
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 文章标题（现在在滚动区域内）
+                          Text(
+                            article.title,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                              height: 1.3,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // 内容标题
+                          Text(
+                            AppLocalizations.of(context)!.articleContent,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // 使用RichContentWidget显示内容，支持图片和文本选择
+                          FutureBuilder<List<ContentItem>>(
+                            future: article.parseContentItems(cacheService: cacheService),
+                            builder: (context, snapshot) {
+                              if (snapshot.hasData) {
+                                return RichContentWidget(
+                                  contentItems: snapshot.data!,
+                                  textStyle: const TextStyle(
+                                    fontSize: 16,
+                                    height: 1.6,
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                  textColor: Colors.black87,
+                                  enableScrolling: false, // 在弹窗中禁用滚动
+                                  article: article, // 传递文章对象
+                                  contextText: article.content, // 传递文章内容作为上下文
+                                  cacheService: cacheService, // 传递缓存服务
+                                );
+                              } else {
+                                return const Center(child: CircularProgressIndicator());
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 20), // 底部留出空间
+                        ],
+                      ),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      if (onClose != null) {
-                        onClose!();
-                      } else {
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    icon: const Icon(Icons.close, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // 对话框内容
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 标题行
-                    Text(
-                      AppLocalizations.of(context)!.articleContent,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // 使用RichContentWidget显示内容，支持图片和文本选择
-                    RichContentWidget(
-                      contentItems: article.parseContentItems(),
-                      textStyle: const TextStyle(
-                        fontSize: 18,
-                        height: 1.6,
-                        color: Colors.black87,
-                        fontWeight: FontWeight.w400,
-                      ),
-                      textColor: Colors.black87,
-                      enableScrolling: false, // 在弹窗中禁用滚动
-                      article: article, // 传递文章对象
-                      contextText: article.content, // 传递文章内容作为上下文
-                    ),
-                  ],
                 ),
-              ),
+                // 底部悬浮关闭按钮 - 位于弹窗水平中心，距离弹窗底部-67像素
+                Positioned(
+                  bottom: -67,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: DeferPointer( // 包裹需要响应事件的组件
+                      child: GestureDetector(
+                        onTap: () {
+                          if (onClose != null) {
+                            onClose!();
+                          } else {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.grey,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

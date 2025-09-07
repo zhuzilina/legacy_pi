@@ -1,12 +1,18 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/article.dart';
-import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 
 class NewsApiService {
   // 使用统一的API配置
-  static String get baseUrl => ApiConfig.crawlerBaseUrl;
+  static String? _baseUrl;
+  
+  static Future<String> get baseUrl async {
+    if (_baseUrl == null) {
+      _baseUrl = await ApiConfig.crawlerBaseUrl;
+    }
+    return _baseUrl!;
+  }
   
   // 单例模式
   static final NewsApiService _instance = NewsApiService._internal();
@@ -17,8 +23,9 @@ class NewsApiService {
   Future<ArticleListResponse?> getDailyArticles() async {
     try {
       print('正在获取每日文章列表...');
+      final base = await baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/daily/'),
+        Uri.parse('$base/daily/'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -44,8 +51,9 @@ class NewsApiService {
   Future<Article?> getArticleContent(String articleId) async {
     try {
       print('正在获取文章内容: $articleId');
+      final base = await baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/article/$articleId/'),
+        Uri.parse('$base/article/$articleId/'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -111,8 +119,9 @@ class NewsApiService {
   Future<Map<String, dynamic>?> getCrawlStatus() async {
     try {
       print('正在获取爬取状态...');
+      final base = await baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/status/'),
+        Uri.parse('$base/status/'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -131,8 +140,9 @@ class NewsApiService {
   }
 
   // 获取图片URL
-  String getImageUrl(String imageId) {
-    return '$baseUrl/image/$imageId/';
+  Future<String> getImageUrl(String imageId) async {
+    final base = await baseUrl;
+    return '$base/image/$imageId/';
   }
 }
 

@@ -6,6 +6,7 @@ import 'package:legacy_pi/services/ai_service.dart';
 import 'package:legacy_pi/services/markdown_parser_service.dart';
 import 'package:legacy_pi/services/tts_service.dart';
 import 'package:legacy_pi/services/unified_cache_service.dart';
+import 'package:defer_pointer/defer_pointer.dart';
 import '../pages/chat_page.dart';
 
 /// 总结要点对话框Widget（内容撑开高度）
@@ -75,7 +76,7 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
       }
       
       // 显示缓存状态
-      final cacheStats = widget.cacheService.getCacheStats();
+      final cacheStats = await widget.cacheService.getCacheStats();
       print('当前缓存状态: ${cacheStats['aiCacheSize']}/${cacheStats['maxAiCacheSize']}');
       
       final response = await widget.aiService.interpretText(
@@ -821,78 +822,111 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
   Widget build(BuildContext context) {
     return Material(
       type: MaterialType.transparency,
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.black54,
-        child: Center(
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.9,
-            // 关键修改：移除固定高度，让内容撑开
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.9, // 最大高度限制
-              minHeight: MediaQuery.of(context).size.height * 0.3,  // 最小高度限制
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min, // 关键：让列根据内容调整大小
+      child: DeferredPointerHandler( // 包裹根组件，处理超出边界的点击事件
+        child: Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: Colors.black54,
+          child: Center(
+            child: Stack(
+              clipBehavior: Clip.none, // 允许子元素移出Stack边界
               children: [
-                // 对话框头部
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
+              Container(
+                width: MediaQuery.of(context).size.width * 0.9,
+                // 关键修改：移除固定高度，让内容撑开
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.9, // 最大高度限制
+                  minHeight: MediaQuery.of(context).size.height * 0.3,  // 最小高度限制
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _isLoading
+                      ? _buildLoadingContent()
+                      : Column(
+                          mainAxisSize: MainAxisSize.min, // 关键：让列根据内容调整大小
                           children: [
-                    Text(
-                              _isLoading ? 'AI解读中' : widget.article.title,
-                              style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                                color: Colors.black87,
+                            // 内容区域 - 不使用Expanded，让内容自然撑开
+                            SingleChildScrollView(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 文章标题（现在在滚动区域内）
+                                  Text(
+                                    widget.article.title,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // AI解读内容
+                                  ..._buildAiContent(),
+                                  const SizedBox(height: 20), // 底部间距
+                                ],
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                            ),
+                            // 音频播放器覆盖层
+                            if (_aiInterpretation.isNotEmpty)
+                              _buildAudioPlayerOverlay(),
+                          ],
+                        ),
+                ),
+              ),
+              // 底部悬浮关闭按钮 - 位于弹窗水平中心，距离弹窗底部-67像素
+              Positioned(
+                bottom: -67,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: DeferPointer( // 包裹需要响应事件的组件
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.grey,
+                          size: 24,
+                        ),
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.grey),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-                const Divider(height: 1),
-                // 对话框内容 - 关键修改：移除Expanded，让内容自然撑开
-                _isLoading
-                    ? _buildLoadingContent()
-                    : _buildAiContent(),
-                // 音频播放器覆盖层
-                if (!_isLoading && _aiInterpretation.isNotEmpty)
-                  _buildAudioPlayerOverlay(),
-              ],
-            ),
+              ),
+            ],
           ),
+        ),
         ),
       ),
     );
@@ -902,10 +936,27 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
     return Container(
       height: MediaQuery.of(context).size.height * 0.2, // 加载时使用固定高度
       padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(16),
+        ),
+      ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Text(
+              'AI解读中',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 20),
             CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.black87),
             ),
@@ -915,11 +966,10 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
     );
   }
 
-  Widget _buildAiContent() {
+  List<Widget> _buildAiContent() {
     if (_errorMessage != null) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        child: Center(
+      return [
+        Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -927,8 +977,8 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
                 Icons.error_outline,
                 size: 48,
                 color: Colors.red[300],
-            ),
-            const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 16),
               Text(
                 'AI解读失败',
                 style: TextStyle(
@@ -949,29 +999,23 @@ class _KeyPointsDialogState extends State<KeyPointsDialog> with TickerProviderSt
             ],
           ),
         ),
-      );
+      ];
     }
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-            // 标题行
-            Text(
-              'AI生成内容，请谨慎对待',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-          const SizedBox(height: 20),
-          // 使用优化的内容显示
-          _buildOptimizedContent(_aiInterpretation),
-        ],
+    return [
+      // AI生成内容提示
+      Text(
+        'AI生成内容，请谨慎对待',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
       ),
-    );
+      const SizedBox(height: 20),
+      // 使用优化的内容显示
+      _buildOptimizedContent(_aiInterpretation),
+    ];
   }
 
   // 优化的内容显示方法 - 整合到一个组件中

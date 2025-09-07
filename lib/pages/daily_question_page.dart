@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 
 class DailyQuestionPage extends StatefulWidget {
   const DailyQuestionPage({super.key});
@@ -34,8 +35,9 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
     });
 
     try {
+      final baseUrl = await ApiConfig.knowledgeQuizBaseUrl;
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/api/knowledge-quiz/daily-question/'),
+        Uri.parse('$baseUrl/daily-question/'),
         headers: {'Content-Type': 'application/json'},
       );
 

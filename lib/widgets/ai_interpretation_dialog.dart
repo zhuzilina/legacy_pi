@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/models/article.dart';
 import 'package:legacy_pi/services/ai_service.dart';
+import 'package:defer_pointer/defer_pointer.dart';
 
 import 'package:legacy_pi/services/tts_service.dart';
 import 'package:legacy_pi/services/unified_cache_service.dart';
@@ -19,7 +20,7 @@ class AiInterpretationDialog extends StatefulWidget {
     required this.article,
     required this.aiService,
     required this.cacheService,
-    this.promptType = 'summary', // 默认为summary
+    this.promptType = 'educational', // 默认为summary
   });
 
   @override
@@ -76,7 +77,7 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
       }
       
       // 显示缓存状态
-      final cacheStats = widget.cacheService.getCacheStats();
+      final cacheStats = await widget.cacheService.getCacheStats();
       print('当前缓存状态: ${cacheStats['aiCacheSize']}/${cacheStats['maxAiCacheSize']}');
       
       final response = await widget.aiService.interpretText(
@@ -834,78 +835,109 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
   Widget build(BuildContext context) {
     return Material(
       type: MaterialType.transparency,
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.black54,
-        child: Center(
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.9,
-            height: _isLoading 
-                ? MediaQuery.of(context).size.height * 0.3  // 加载时使用更小高度
-                : MediaQuery.of(context).size.height * 0.85, // 加载完成后使用正常高度
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
+      child: DeferredPointerHandler( // 包裹根组件，处理超出边界的点击事件
+        child: Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: Colors.black54,
+          child: Center(
+            child: Stack(
+              clipBehavior: Clip.none, // 允许子元素移出Stack边界
               children: [
-                // 对话框头部
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
-                    ),
-                  ),
-                        child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _isLoading ? 'AI解读中' : widget.article.title,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close, color: Colors.grey),
+              Container(
+                width: MediaQuery.of(context).size.width * 0.9,
+                height: _isLoading 
+                    ? MediaQuery.of(context).size.height * 0.3  // 加载时使用更小高度
+                    : MediaQuery.of(context).size.height * 0.72, // 加载完成后使用72%高度
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
                   ],
                 ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _isLoading
+                      ? _buildLoadingContent()
+                      : Column(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // 文章标题（现在在滚动区域内）
+                                    Text(
+                                      widget.article.title,
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // AI解读内容
+                                    ..._buildAiContent(),
+                                    const SizedBox(height: 20), // 底部间距
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // 音频播放器覆盖层
+                            if (_aiInterpretation.isNotEmpty)
+                              _buildAudioPlayerOverlay(),
+                          ],
+                        ),
                 ),
-                const Divider(height: 1),
-                // 对话框内容
-                _isLoading
-                    ? _buildLoadingContent()
-                    : Expanded(
-                        child: _buildAiContent(),
+              ),
+              // 底部悬浮关闭按钮 - 位于弹窗水平中心，距离弹窗底部-67像素
+              Positioned(
+                bottom: -67,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: DeferPointer( // 包裹需要响应事件的组件
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.grey,
+                          size: 24,
+                        ),
                       ),
-                // 音频播放器覆盖层
-                if (!_isLoading && _aiInterpretation.isNotEmpty)
-                  _buildAudioPlayerOverlay(),
-              ],
-            ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
+        ),
         ),
       ),
     );
@@ -919,6 +951,15 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Text(
+              'AI解读中',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 20),
             CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.black87),
             ),
@@ -928,11 +969,10 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
     );
   }
 
-  Widget _buildAiContent() {
+  List<Widget> _buildAiContent() {
     if (_errorMessage != null) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        child: Center(
+      return [
+        Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -972,29 +1012,23 @@ class _AiInterpretationDialogState extends State<AiInterpretationDialog> with Ti
             ],
           ),
         ),
-      );
+      ];
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题行
-            Text(
-              'AI生成内容，请谨慎对待',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 16),
-          // 使用自定义Markdown解析渲染内容，支持"问AI"选项
-          ..._parseMarkdownWithAiOption(_aiInterpretation),
-        ],
+    return [
+      // AI生成内容提示
+      Text(
+        'AI生成内容，请谨慎对待',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
       ),
-    );
+      const SizedBox(height: 16),
+      // 使用自定义Markdown解析渲染内容，支持"问AI"选项
+      ..._parseMarkdownWithAiOption(_aiInterpretation),
+    ];
   }
   
   // 构建音频播放器覆盖层

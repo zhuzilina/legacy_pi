@@ -10,7 +10,14 @@ import '../config/api_config.dart';
 /// TTS服务类，用于处理文本转语音请求
 class TtsService {
   // 使用统一的API配置
-  static String get _baseUrl => ApiConfig.ttsBaseUrl;
+  static String? _baseUrl;
+  
+  static Future<String> get baseUrl async {
+    if (_baseUrl == null) {
+      _baseUrl = await ApiConfig.ttsBaseUrl;
+    }
+    return _baseUrl!;
+  }
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isInitialized = false;
   int? _lastUpdateTime; // 用于限制时间更新频率
@@ -26,7 +33,8 @@ class TtsService {
   /// 获取可用的语音列表
   Future<Map<String, String>?> getAvailableVoices() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/voices/'));
+      final base = await baseUrl;
+      final response = await http.get(Uri.parse('$base/voices/'));
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -329,11 +337,12 @@ class TtsService {
           final audioFile = fileResult['audio_file'] as String;
           
           // 修复URL路径问题，确保是相对路径
+          final base = await ApiConfig.baseUrl;
           String audioUrl;
           if (audioFile.startsWith('/')) {
-            audioUrl = '${ApiConfig.baseUrl}$audioFile';
+            audioUrl = '$base$audioFile';
           } else {
-            audioUrl = '${ApiConfig.baseUrl}/$audioFile';
+            audioUrl = '$base/$audioFile';
           }
           
           if (kDebugMode) {
@@ -410,7 +419,8 @@ class TtsService {
     String language = 'zh-CN',
   }) async {
     try {
-      final request = http.Request('POST', Uri.parse('$_baseUrl/stream/'));
+      final base = await baseUrl;
+      final request = http.Request('POST', Uri.parse('$base/stream/'));
       request.headers['Content-Type'] = 'application/json';
       request.body = json.encode({
         'text': text,
@@ -444,8 +454,9 @@ class TtsService {
     String language = 'zh-CN',
   }) async {
     try {
+      final base = await baseUrl;
       final response = await http.post(
-        Uri.parse('$_baseUrl/file/'),
+        Uri.parse('$base/file/'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'text': text,
@@ -473,7 +484,8 @@ class TtsService {
   /// 查询TTS请求状态
   Future<Map<String, dynamic>?> getTtsStatus(int requestId) async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/status/$requestId/'));
+      final base = await baseUrl;
+      final response = await http.get(Uri.parse('$base/status/$requestId/'));
       
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -494,7 +506,8 @@ class TtsService {
   /// 下载音频文件
   Future<Uint8List?> downloadAudio(int requestId) async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/download/$requestId/'));
+      final base = await baseUrl;
+      final response = await http.get(Uri.parse('$base/download/$requestId/'));
       
       if (response.statusCode == 200) {
         return response.bodyBytes;

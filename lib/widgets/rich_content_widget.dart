@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/content_item.dart';
 import '../pages/chat_page.dart';
 import '../models/article.dart';
+import '../services/image_cache_service.dart';
+import '../services/unified_cache_service.dart';
 
 class RichContentWidget extends StatelessWidget {
   final List<ContentItem> contentItems;
@@ -10,6 +13,7 @@ class RichContentWidget extends StatelessWidget {
   final bool enableScrolling; // 是否启用滚动
   final Article? article; // 新增：文章对象，用于传递到聊天页面
   final String? contextText; // 新增：上下文文本，用于传递到聊天页面
+  final UnifiedCacheService? cacheService; // 新增：缓存服务
 
   const RichContentWidget({
     super.key,
@@ -19,6 +23,7 @@ class RichContentWidget extends StatelessWidget {
     this.enableScrolling = true, // 默认启用滚动
     this.article, // 可选的文章对象，用于传递到聊天页面
     this.contextText, // 可选的上下文文本，用于传递到聊天页面
+    this.cacheService, // 可选的缓存服务
   });
 
   @override
@@ -115,13 +120,10 @@ class RichContentWidget extends StatelessWidget {
     );
   }
 
-  // 构建网络图片组件
+  // 构建网络图片组件（使用缓存）
   Widget _buildNetworkImage(String imageUrl, String? altText) {
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(
-        maxHeight: 300, // 限制最大高度
-      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12.0),
         boxShadow: [
@@ -134,39 +136,32 @@ class RichContentWidget extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12.0),
-        child: Image.network(
-          imageUrl,
-          fit: BoxFit.cover,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) {
-              return child;
-            }
-            return Container(
-              height: 200,
-              alignment: Alignment.center,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                    valueColor: AlwaysStoppedAnimation<Color>(textColor),
+        child: CachedNetworkImage(
+          imageUrl: imageUrl,
+          fit: BoxFit.fitWidth, // 让图片宽度填满容器，高度按比例缩放
+          cacheManager: ImageCacheService().cacheManager, // 使用自定义缓存管理器
+          placeholder: (context, url) => Container(
+            width: double.infinity,
+            height: 200, // 保持固定的加载高度
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(textColor),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '加载图片中...',
+                  style: TextStyle(
+                    color: textColor.withOpacity(0.6),
+                    fontSize: 14,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '加载图片中...',
-                    style: TextStyle(
-                      color: textColor.withOpacity(0.6),
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) {
+                ),
+              ],
+            ),
+          ),
+          errorWidget: (context, url, error) {
             print('图片加载失败: $imageUrl, 错误: $error');
             return Container(
               height: 150,

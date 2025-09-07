@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/app_localizations.dart';
 import 'pages/home_page.dart';
 import 'services/global_state.dart';
 import 'config/api_config.dart';
+
+// 创建一个全局可访问的 RouteObserver
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +28,9 @@ class RedCultureApp extends StatelessWidget {
     return MaterialApp(
       title: '红色文化学习',
       debugShowCheckedModeBanner: false,
+      
+      // 添加路由观察者
+      navigatorObservers: [routeObserver],
       
       // 本地化支持
       localizationsDelegates: const [

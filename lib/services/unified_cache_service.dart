@@ -1,6 +1,9 @@
 import 'dart:typed_data';
+import 'image_cache_service.dart';
+import 'text_cache_service.dart';
+import 'page_state_cache_service.dart';
 
-/// 统一的缓存服务，整合AI解读缓存和音频缓存
+/// 统一的缓存服务，整合AI解读缓存、音频缓存、图片缓存、文本缓存和页面状态缓存
 class UnifiedCacheService {
   static final UnifiedCacheService _instance = UnifiedCacheService._internal();
   factory UnifiedCacheService() => _instance;
@@ -13,6 +16,15 @@ class UnifiedCacheService {
   // 音频缓存
   final Map<String, Uint8List> _audioCache = {};
   static const int _maxAudioCacheSize = 30; // 音频文件较大，限制缓存数量
+
+  // 图片缓存服务
+  final ImageCacheService _imageCacheService = ImageCacheService();
+  
+  // 文本缓存服务
+  final TextCacheService _textCacheService = TextCacheService();
+  
+  // 页面状态缓存服务
+  final PageStateCacheService _pageStateCacheService = PageStateCacheService();
 
   /// 生成AI解读缓存键
   String _generateAiCacheKey(String text, String promptType, String? customPrompt) {
@@ -106,19 +118,47 @@ class UnifiedCacheService {
   }
 
   /// 获取缓存统计信息
-  Map<String, dynamic> getCacheStats() {
+  Future<Map<String, dynamic>> getCacheStats() async {
+    final imageStats = await _imageCacheService.getCacheStats();
+    final textStats = _textCacheService.getCacheStats();
+    final pageStateStats = await _pageStateCacheService.getCacheStats();
+    
     return {
       'aiCacheSize': _aiCache.length,
       'maxAiCacheSize': _maxAiCacheSize,
       'audioCacheSize': _audioCache.length,
       'maxAudioCacheSize': _maxAudioCacheSize,
-      'totalCacheSize': _aiCache.length + _audioCache.length,
+      'imageCacheSize': imageStats['cacheCount'] ?? 0,
+      'imageCacheSizeMB': imageStats['cacheSizeMB'] ?? '0.00',
+      'textCacheSize': textStats['cacheSize'] ?? 0,
+      'maxTextCacheSize': textStats['maxCacheSize'] ?? 0,
+      'pageStateCache': pageStateStats,
+      'totalCacheSize': _aiCache.length + _audioCache.length + 
+                       (imageStats['cacheCount'] ?? 0) + 
+                       (textStats['cacheSize'] ?? 0),
     };
   }
 
   /// 清空所有缓存
-  void clearAllCache() {
+  Future<void> clearAllCache() async {
     _aiCache.clear();
     _audioCache.clear();
+    await _imageCacheService.clearAllCache();
+    _textCacheService.clearAllCache();
+    await _pageStateCacheService.clearAllPageState();
   }
+
+  /// 预加载文章中的图片
+  Future<void> preloadArticleImages(List<String> imageUrls) async {
+    await _imageCacheService.preloadImages(imageUrls);
+  }
+
+  /// 获取图片缓存服务
+  ImageCacheService get imageCacheService => _imageCacheService;
+  
+  /// 获取文本缓存服务
+  TextCacheService get textCacheService => _textCacheService;
+  
+  /// 获取页面状态缓存服务
+  PageStateCacheService get pageStateCacheService => _pageStateCacheService;
 }
