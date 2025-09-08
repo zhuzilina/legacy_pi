@@ -123,7 +123,7 @@ class _KnowledgePageState extends State<KnowledgePage>
   // 功能区块
   Widget _buildFunctionBlocks() {
     return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.4,
+      height: MediaQuery.of(context).size.height * 0.3,
       child: Column(
         children: [
           // 第一行：知识挑战和每日一答
@@ -190,14 +190,6 @@ class _KnowledgePageState extends State<KnowledgePage>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -224,14 +216,6 @@ class _KnowledgePageState extends State<KnowledgePage>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: TabBar(
         controller: _tabController,
@@ -243,6 +227,7 @@ class _KnowledgePageState extends State<KnowledgePage>
         labelColor: Colors.white,
         unselectedLabelColor: Colors.grey[600],
         labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+        dividerColor: Colors.transparent,
         tabs: const [
           Tab(text: '新思想'),
           Tab(text: '知识理论'),
@@ -313,14 +298,6 @@ class _KnowledgePageState extends State<KnowledgePage>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: InkWell(
         onTap: () {

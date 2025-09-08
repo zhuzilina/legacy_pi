@@ -212,6 +212,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                 backgroundColor: Colors.blue[600],
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                elevation: 0,
               ),
             ),
           ],
@@ -269,7 +270,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
 
   Widget _buildQuestionAndAnswerCard() {
     return Card(
-      elevation: 4,
+      elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: Colors.white,
       child: Padding(
@@ -448,6 +449,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
+          elevation: 0,
         ),
         child: Text(
           _hasAnswered ? '已答题' : '提交答案',
@@ -475,6 +477,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         contentPadding: const EdgeInsets.all(24),
         content: Column(
@@ -518,30 +521,16 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
+                    elevation: 0,
                   ),
                   child: const Text('确定'),
                 ),
               ),
             ] else ...[
               // 回答错误：返回和继续学习按钮
-              Column(
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  // "拿100分"文字，右对齐
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      const Text(
-                        '拿100分',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.black,
-                        ),
-                      ),
-                      // 计算按钮间距的一半，让文字与按钮右边缘对齐
-                      const SizedBox(width: 6), // 12px按钮间距的一半
-                    ],
-                  ),
-                  const SizedBox(height: 8),
                   // 按钮行
                   Row(
                     children: [
@@ -558,6 +547,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
+                            elevation: 0,
                           ),
                           child: const Text('返回'),
                         ),
@@ -576,11 +566,32 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
+                            elevation: 0,
                           ),
                           child: const Text('继续学习'),
                         ),
                       ),
                     ],
+                  ),
+                  // "拿100分"文字悬浮在继续学习按钮右上角
+                  Positioned(
+                    top: -12,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        '拿100分',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
