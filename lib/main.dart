@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/app_localizations.dart';
 import 'pages/home_page.dart';
 import 'services/global_state.dart';
+import 'services/unified_cache_service.dart';
 import 'config/api_config.dart';
 
 // 创建一个全局可访问的 RouteObserver
@@ -13,6 +14,11 @@ void main() async {
 
   // 初始化全局状态
   await GlobalState().initialize();
+  
+  // 应用启动时清理文章数据缓存，确保获取最新数据
+  final cacheService = UnifiedCacheService();
+  cacheService.clearAllArticleCache();
+  print('应用启动：已清理所有文章数据缓存，将重新获取最新数据');
   
   // 打印API配置信息
   ApiConfig.printConfig();

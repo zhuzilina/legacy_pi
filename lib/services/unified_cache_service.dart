@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'image_cache_service.dart';
 import 'text_cache_service.dart';
 import 'page_state_cache_service.dart';
+import 'article_data_cache_service.dart';
+import '../models/article.dart';
 
 /// 统一的缓存服务，整合AI解读缓存、音频缓存、图片缓存、文本缓存和页面状态缓存
 class UnifiedCacheService {
@@ -25,6 +27,9 @@ class UnifiedCacheService {
   
   // 页面状态缓存服务
   final PageStateCacheService _pageStateCacheService = PageStateCacheService();
+  
+  // 文章数据缓存服务
+  final ArticleDataCacheService _articleDataCacheService = ArticleDataCacheService();
 
   /// 生成AI解读缓存键
   String _generateAiCacheKey(String text, String promptType, String? customPrompt) {
@@ -122,6 +127,7 @@ class UnifiedCacheService {
     final imageStats = await _imageCacheService.getCacheStats();
     final textStats = _textCacheService.getCacheStats();
     final pageStateStats = await _pageStateCacheService.getCacheStats();
+    final articleDataStats = _articleDataCacheService.getCacheStats();
     
     return {
       'aiCacheSize': _aiCache.length,
@@ -133,9 +139,11 @@ class UnifiedCacheService {
       'textCacheSize': textStats['cacheSize'] ?? 0,
       'maxTextCacheSize': textStats['maxCacheSize'] ?? 0,
       'pageStateCache': pageStateStats,
+      'articleDataCache': articleDataStats,
       'totalCacheSize': _aiCache.length + _audioCache.length + 
                        (imageStats['cacheCount'] ?? 0) + 
-                       (textStats['cacheSize'] ?? 0),
+                       (textStats['cacheSize'] ?? 0) +
+                       (articleDataStats['totalCacheItems'] ?? 0),
     };
   }
 
@@ -146,6 +154,7 @@ class UnifiedCacheService {
     await _imageCacheService.clearAllCache();
     _textCacheService.clearAllCache();
     await _pageStateCacheService.clearAllPageState();
+    _articleDataCacheService.clearAllCache();
   }
 
   /// 预加载文章中的图片
@@ -161,4 +170,45 @@ class UnifiedCacheService {
   
   /// 获取页面状态缓存服务
   PageStateCacheService get pageStateCacheService => _pageStateCacheService;
+  
+  /// 获取文章数据缓存服务
+  ArticleDataCacheService get articleDataCacheService => _articleDataCacheService;
+  
+  // ========== 文章数据缓存相关方法 ==========
+  
+  /// 获取缓存的文章数据
+  List<Article>? getCachedArticles(String category, String dataSource) {
+    return _articleDataCacheService.getCachedArticles(category, dataSource);
+  }
+  
+  /// 设置缓存的文章数据
+  void setCachedArticles(String category, String dataSource, List<Article> articles) {
+    _articleDataCacheService.setCachedArticles(category, dataSource, articles);
+  }
+  
+  /// 检查是否有有效的文章缓存
+  bool hasValidArticleCache(String category, String dataSource) {
+    return _articleDataCacheService.hasValidCache(category, dataSource);
+  }
+  
+  /// 获取文章缓存信息
+  Map<String, dynamic> getArticleCacheInfo(String category, String dataSource) {
+    return _articleDataCacheService.getCacheInfo(category, dataSource);
+  }
+  
+  /// 清除特定分类的文章缓存
+  void clearCategoryArticleCache(String category, String dataSource) {
+    _articleDataCacheService.clearCategoryCache(category, dataSource);
+  }
+  
+  /// 清理过期的文章缓存
+  void cleanExpiredArticleCache() {
+    _articleDataCacheService.cleanExpiredCache();
+  }
+  
+  /// 清理所有文章数据缓存（应用启动时使用）
+  void clearAllArticleCache() {
+    _articleDataCacheService.clearAllCache();
+    print('已清理所有文章数据缓存');
+  }
 }

@@ -198,6 +198,31 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     try {
       print('开始加载 $category 分类的文章数据...');
       
+      // 确定数据源
+      final dataSource = category == '新闻' ? 'news' : 'md_docs';
+      
+      // 检查是否有有效的缓存
+      if (_cacheService.hasValidArticleCache(category, dataSource)) {
+        final cachedArticles = _cacheService.getCachedArticles(category, dataSource);
+        if (cachedArticles != null && cachedArticles.isNotEmpty) {
+          setState(() {
+            _articlesMap[category] = cachedArticles;
+            _isLoadingMap[category] = false;
+            _errorMessageMap[category] = '';
+          });
+          
+          // 预加载文章中的图片
+          _preloadArticleImages(cachedArticles);
+          
+          final cacheInfo = _cacheService.getArticleCacheInfo(category, dataSource);
+          print('使用缓存数据: $category, 文章数量: ${cachedArticles.length}, 剩余时间: ${cacheInfo['remainingMinutes']}分钟');
+          return;
+        }
+      }
+      
+      // 没有有效缓存，从API获取数据
+      print('缓存未命中或已过期，从API获取数据: $category');
+      
       // 根据分类选择不同的数据源
       if (category == '新闻') {
         await _loadNewsArticles(category);
@@ -271,6 +296,9 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
       _errorMessageMap[category] = '';
     });
 
+    // 缓存文章数据
+    _cacheService.setCachedArticles(category, 'news', articles);
+
     // 预加载文章中的图片
     _preloadArticleImages(articles);
 
@@ -337,6 +365,9 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
         _errorMessageMap[category] = '';
       });
       
+      // 缓存文章数据
+      _cacheService.setCachedArticles(category, 'md_docs', articles);
+      
       // 预加载文章中的图片
       _preloadArticleImages(articles);
       
@@ -371,6 +402,28 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
       // 出错时加载默认数据
       _loadArticlesForCategory(_categories[0]);
     }
+  }
+
+  // 强制刷新指定分类的缓存
+  void refreshCategoryCache(String category) {
+    final dataSource = category == '新闻' ? 'news' : 'md_docs';
+    
+    // 清除该分类的缓存
+    _cacheService.clearCategoryArticleCache(category, dataSource);
+    
+    // 清除内存中的数据
+    _articlesMap[category] = [];
+    
+    // 重新加载数据
+    _loadArticlesForCategory(category);
+    
+    print('已强制刷新 $category 分类的缓存');
+  }
+
+  // 获取缓存信息
+  Map<String, dynamic> getCategoryCacheInfo(String category) {
+    final dataSource = category == '新闻' ? 'news' : 'md_docs';
+    return _cacheService.getArticleCacheInfo(category, dataSource);
   }
 
 
