@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:legacy_pi/pages/pk.dart';
 import 'dart:convert';
 import 'daily_question_page.dart';
 import 'knowledge_detail_page.dart';
+import 'recent_learning_page.dart';
 import '../config/api_config.dart';
 
 class KnowledgePage extends StatefulWidget {
@@ -132,10 +134,15 @@ class _KnowledgePageState extends State<KnowledgePage>
               children: [
                 Expanded(
                   child: _buildFunctionCard(
-                    title: '知识挑战',
+                    title: '答题pk',
                     icon: Icons.emoji_events,
                     color: Colors.amber[600]!,
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const PKPage())
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -167,7 +174,12 @@ class _KnowledgePageState extends State<KnowledgePage>
                     title: '最近学习',
                     icon: Icons.history,
                     color: Colors.green[600]!,
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const RecentLearningPage()),
+                      );
+                    },
                   ),
                 ),
               ],

@@ -4,11 +4,29 @@ import 'dart:io';
 import '../database/database_helper.dart';
 import '../models/user.dart';
 import '../models/user_score.dart';
-import '../models/achievement.dart';
 import '../models/chat_record.dart';
 import '../services/chat_record_service.dart';
 import '../models/article.dart';
 import '../pages/chat_page.dart';
+import '../services/journey_state_service.dart';
+
+class Task {
+  final String id;
+  final String title;
+  final String description;
+  final int points;
+  final bool isCompleted;
+  final bool canClaim;
+
+  Task({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.points,
+    required this.isCompleted,
+    required this.canClaim,
+  });
+}
 
 class ProfileDrawer extends StatefulWidget {
   final VoidCallback? onScoreUpdated;
@@ -28,12 +46,140 @@ class _ProfileDrawerState extends State<ProfileDrawer>
   int _achievementsCount = 0;
   final ImagePicker _picker = ImagePicker();
   bool _hasScoreUpdated = false;
+  List<Task> _tasks = [];
 
   @override
   void initState() {
     super.initState();
+    _initializeTasks();
     _loadUserData();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  // 初始化任务列表
+  void _initializeTasks() {
+    final journeyStateService = JourneyStateService();
+
+    // 检查全局任务状态，如果没有则初始化
+    if (journeyStateService.taskStates.isEmpty) {
+      final initialStates = {
+        'login': TaskState(isCompleted: false, canClaim: true),
+        'read_5min': TaskState(isCompleted: false, canClaim: true),
+        'study_5min': TaskState(isCompleted: false, canClaim: false),
+        'daily_quiz': TaskState(isCompleted: false, canClaim: false),
+      };
+      journeyStateService.initializeTaskStates(initialStates);
+    }
+
+    // 从全局状态获取任务状态
+    final taskStates = journeyStateService.taskStates;
+
+    _tasks = [
+      Task(
+        id: 'login',
+        title: '登录APP',
+        description: '每日登录应用程序',
+        points: 20,
+        isCompleted: taskStates['login']?.isCompleted ?? false,
+        canClaim: taskStates['login']?.canClaim ?? false,
+      ),
+      Task(
+        id: 'read_5min',
+        title: '阅读5分钟',
+        description: '累计阅读时长达到5分钟',
+        points: 50,
+        isCompleted: taskStates['read_5min']?.isCompleted ?? false,
+        canClaim: taskStates['read_5min']?.canClaim ?? false,
+      ),
+      Task(
+        id: 'study_5min',
+        title: '学习5分钟',
+        description: '累计学习时长达到5分钟',
+        points: 50,
+        isCompleted: taskStates['study_5min']?.isCompleted ?? false,
+        canClaim: taskStates['study_5min']?.canClaim ?? false,
+      ),
+      Task(
+        id: 'daily_quiz',
+        title: '参与每日一答',
+        description: '完成每日答题挑战',
+        points: 50,
+        isCompleted: taskStates['daily_quiz']?.isCompleted ?? false,
+        canClaim: taskStates['daily_quiz']?.canClaim ?? false,
+      ),
+    ];
+  }
+
+  // 领取任务奖励
+  Future<void> _claimTaskReward(Task task) async {
+    if (!task.canClaim || task.isCompleted) return;
+
+    try {
+      // 添加积分记录
+      await _databaseHelper.insertUserScore(
+        UserScore(
+          userId: _currentUser!.id!,
+          score: task.points,
+          description: '完成任务: ${task.title}',
+          earnedAt: DateTime.now(),
+        ),
+      );
+
+      // 更新全局任务状态
+      final journeyStateService = JourneyStateService();
+      journeyStateService.updateTaskState(
+        task.id,
+        TaskState(isCompleted: true, canClaim: false),
+      );
+
+      // 更新本地任务状态
+      setState(() {
+        final taskIndex = _tasks.indexWhere((t) => t.id == task.id);
+        if (taskIndex != -1) {
+          _tasks[taskIndex] = Task(
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            points: task.points,
+            isCompleted: true,
+            canClaim: false,
+          );
+        }
+      });
+
+      // 重新加载用户数据
+      await _loadUserData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('成功领取 ${task.points} 积分！'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('领取失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // 获取已激活的按钮数量（成就数量）
+  Future<int> _getActivatedButtonsCount() async {
+    try {
+      // 使用 JourneyStateService 获取激活的按钮数量
+      final journeyStateService = JourneyStateService();
+      return journeyStateService.activatedButtonsCount;
+    } catch (e) {
+      print('获取激活按钮数量失败: $e');
+      return 0;
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -42,13 +188,13 @@ class _ProfileDrawerState extends State<ProfileDrawer>
       _currentUser = await _databaseHelper.getUserByUsername('default_user');
 
       if (_currentUser != null) {
-        // 加载积分和成就数据
+        // 加载积分数据
         _totalScore = await _databaseHelper.getTotalUserScore(
           _currentUser!.id!,
         );
-        _achievementsCount = await _databaseHelper.getUnlockedAchievementsCount(
-          _currentUser!.id!,
-        );
+
+        // 加载成就数据（从 JourneyPage 的激活按钮获取）
+        _achievementsCount = await _getActivatedButtonsCount();
 
         setState(() {});
       }
@@ -62,6 +208,90 @@ class _ProfileDrawerState extends State<ProfileDrawer>
     setState(() {});
   }
   
+  // 构建任务项
+  Widget _buildTaskItem(Task task) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          // 任务信息
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      task.title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '+${task.points}积分',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  task.description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 领取按钮
+          if (task.canClaim && !task.isCompleted)
+            ElevatedButton(
+              onPressed: () => _claimTaskReward(task),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[700],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                elevation: 0,
+                minimumSize: const Size(50, 24),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              child: const Text(
+                '领取',
+                style: TextStyle(fontSize: 11),
+              ),
+            )
+          else if (task.isCompleted)
+            const Text(
+              '已领取',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            )
+          else
+            Text(
+              '未完成',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[500],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   // 格式化时间
   String _formatTime(DateTime dateTime) {
     final now = DateTime.now();
@@ -249,164 +479,13 @@ class _ProfileDrawerState extends State<ProfileDrawer>
     }
   }
 
-  // 显示积分调节对话框
-  Future<void> _showScoreAdjustDialog() async {
-    if (_currentUser == null) return;
-
-    final TextEditingController controller = TextEditingController(
-      text: _totalScore.toString(),
-    );
-
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('调节积分'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('请输入要调整的积分值：'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: '积分值',
-                hintText: '请输入积分值',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '注意：这将直接设置积分值，用于测试动画效果',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              final newScore = int.tryParse(controller.text);
-              if (newScore != null && newScore >= 0) {
-                Navigator.pop(context, {
-                  'score': newScore,
-                  'description': '测试积分调节',
-                });
-              } else {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('请输入有效的积分值')));
-              }
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null) {
-      try {
-        // 添加积分记录
-        await _databaseHelper.insertUserScore(
-          UserScore(
-            userId: _currentUser!.id!,
-            score: result['score'] - _totalScore, // 计算差值
-            description: result['description'],
-            earnedAt: DateTime.now(),
-          ),
-        );
-
-        // 重新加载数据
-        await _loadUserData();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('积分已调整为 ${result['score']}'),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          // 设置积分更新标记，等待抽屉关闭时通知
-          _hasScoreUpdated = true;
-          print('ProfileDrawer: 积分已更新，设置标记等待抽屉关闭，当前标记状态: $_hasScoreUpdated');
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('积分调节失败: $e'), backgroundColor: Colors.red),
-          );
-        }
-      }
-    }
-  }
-
-  // 快速调节积分
-  Future<void> _quickAdjustScore(int scoreChange) async {
-    if (_currentUser == null) return;
-
-    try {
-      // 计算新的积分值
-      final newScore = _totalScore + scoreChange;
-
-      // 确保积分不为负数
-      if (newScore < 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('积分不能为负数'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      // 添加积分记录
-      await _databaseHelper.insertUserScore(
-        UserScore(
-          userId: _currentUser!.id!,
-          score: scoreChange,
-          description: scoreChange > 0 ? '测试增加积分' : '测试减少积分',
-          earnedAt: DateTime.now(),
-        ),
-      );
-
-      // 重新加载数据
-      await _loadUserData();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              scoreChange > 0
-                  ? '积分已增加 $scoreChange'
-                  : '积分已减少 ${scoreChange.abs()}',
-            ),
-            backgroundColor: scoreChange > 0 ? Colors.green : Colors.orange,
-          ),
-        );
-
-        // 设置积分更新标记，等待抽屉关闭时通知
-        _hasScoreUpdated = true;
-        print('ProfileDrawer: 积分已更新，设置标记等待抽屉关闭，当前标记状态: $_hasScoreUpdated');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('积分调节失败: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
+  
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      child: SingleChildScrollView(
+      child: Container(
+        color: Colors.grey[50],
+        child: SingleChildScrollView(
         child: Column(
           children: [
             // 用户信息头部
@@ -424,6 +503,7 @@ class _ProfileDrawerState extends State<ProfileDrawer>
             // 底部信息
             _buildFooter(),
           ],
+        ),
         ),
       ),
     );
@@ -603,123 +683,113 @@ class _ProfileDrawerState extends State<ProfileDrawer>
 
           // 积分卡片
           Card(
-            elevation: 2,
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.stars,
+                      color: Colors.orange,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '当前积分',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        Text(
+                          '$_totalScore',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () async {
+                      await _loadUserData();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('数据已刷新')),
+                        );
+                      }
+                    },
+                    icon: const Icon(
+                      Icons.refresh,
+                      color: Colors.grey,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // 任务列表卡片
+          Card(
+            elevation: 0,
+            color: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
+                          color: Colors.blue.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
-                          Icons.stars,
-                          color: Colors.orange,
+                          Icons.task_alt,
+                          color: Colors.blue,
                           size: 24,
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '当前积分',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            Text(
-                              '$_totalScore',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () async {
-                          await _loadUserData();
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('数据已刷新')),
-                            );
-                          }
-                        },
-                        icon: const Icon(
-                          Icons.refresh,
-                          color: Colors.grey,
-                          size: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  // 积分调节按钮
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _showScoreAdjustDialog(),
-                          icon: const Icon(Icons.tune, size: 16),
-                          label: const Text('调节积分'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue[600],
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                      const Expanded(
+                        child: Text(
+                          '每日任务',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  // 快速测试按钮
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _quickAdjustScore(100),
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('+100'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.green[600],
-                            side: BorderSide(color: Colors.green[600]!),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _quickAdjustScore(-100),
-                          icon: const Icon(Icons.remove, size: 16),
-                          label: const Text('-100'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red[600],
-                            side: BorderSide(color: Colors.red[600]!),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 16),
+                  // 任务列表
+                  ..._tasks.map((task) => _buildTaskItem(task)),
                 ],
               ),
             ),
@@ -738,7 +808,8 @@ class _ProfileDrawerState extends State<ProfileDrawer>
               }
             },
             child: Card(
-              elevation: 2,
+              elevation: 0,
+              color: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -848,7 +919,8 @@ class _ProfileDrawerState extends State<ProfileDrawer>
   Widget _buildChatRecordItem(ChatRecord record) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      elevation: 1,
+      elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ListTile(
         leading: Container(
@@ -905,42 +977,6 @@ class _ProfileDrawerState extends State<ProfileDrawer>
       ),
     );
   }
-  
-  Widget _buildRecordItem({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String time,
-    required Color color,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        trailing: Text(
-          time,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-      ),
-    );
-  }
 
   Widget _buildSettings() {
     return Container(
@@ -953,46 +989,6 @@ class _ProfileDrawerState extends State<ProfileDrawer>
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-
-          _buildSettingItem(
-            icon: Icons.notifications,
-            title: '消息通知',
-            trailing: Switch(
-              value: true,
-              onChanged: (value) {},
-              activeColor: Colors.red[700],
-            ),
-          ),
-
-          _buildSettingItem(
-            icon: Icons.dark_mode,
-            title: '深色模式',
-            trailing: Switch(
-              value: false,
-              onChanged: (value) {},
-              activeColor: Colors.red[700],
-            ),
-          ),
-
-          _buildSettingItem(
-            icon: Icons.language,
-            title: '语言设置',
-            trailing: const Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.grey,
-              size: 16,
-            ),
-          ),
-
-          _buildSettingItem(
-            icon: Icons.help,
-            title: '帮助与反馈',
-            trailing: const Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.grey,
-              size: 16,
-            ),
-          ),
 
           _buildSettingItem(
             icon: Icons.info,
@@ -1015,7 +1011,8 @@ class _ProfileDrawerState extends State<ProfileDrawer>
   }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      elevation: 1,
+      elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ListTile(
         leading: Icon(icon, color: Colors.grey[600], size: 20),

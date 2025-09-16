@@ -15,7 +15,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
   Map<String, dynamic>? _question;
   bool _loading = true;
   String _error = '';
-  String _userAnswer = '';
+  List<String> _userAnswer = [];
   bool _showAnswer = false;
   bool _isCorrect = false;
   bool _hasAnswered = false;
@@ -74,10 +74,18 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
     bool isCorrect = false;
     if (_question!['question_type'] == 'choice') {
       // 选择题：检查用户选择的选项
-      isCorrect = _userAnswer == _getCorrectAnswer();
+      final correctAnswers = _getCorrectAnswers();
+      isCorrect = _userAnswer.length == correctAnswers.length &&
+                  _userAnswer.every((answer) => correctAnswers.contains(answer));
+    } else if (_question!['question_type'] == 'multiple_choice') {
+      // 多选题：检查用户选择的多个选项
+      final correctAnswers = _getCorrectAnswers();
+      isCorrect = _userAnswer.length == correctAnswers.length &&
+                  _userAnswer.every((answer) => correctAnswers.contains(answer));
     } else if (_question!['question_type'] == 'fill') {
       // 填空题：检查用户输入的答案
-      isCorrect = _userAnswer.trim().toLowerCase() == 
+      isCorrect = _userAnswer.isNotEmpty &&
+                  _userAnswer[0].trim().toLowerCase() ==
                   _question!['correct_answer'].toString().trim().toLowerCase();
     }
 
@@ -95,18 +103,24 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
     _showResultDialog();
   }
 
-  String _getCorrectAnswer() {
-    if (_question == null) return '';
-    
+  List<String> _getCorrectAnswers() {
+    if (_question == null) return [];
+
     final options = _question!['options'] as List?;
-    if (options == null) return '';
-    
+    if (options == null) return [];
+
+    List<String> correctAnswers = [];
     for (var option in options) {
       if (option['is_correct'] == true) {
-        return option['text'] ?? '';
+        correctAnswers.add(option['text'] ?? '');
       }
     }
-    return '';
+    return correctAnswers;
+  }
+
+  String _getCorrectAnswer() {
+    final correctAnswers = _getCorrectAnswers();
+    return correctAnswers.isNotEmpty ? correctAnswers.first : '';
   }
 
   // 持久化相关方法
@@ -119,14 +133,14 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
       // 如果是同一天且已答题，则恢复状态
       if (savedDate == today) {
         final hasAnswered = prefs.getBool('daily_question_answered') ?? false;
-        final userAnswer = prefs.getString('daily_question_answer') ?? '';
+        final userAnswerList = prefs.getStringList('daily_question_answer') ?? [];
         final isCorrect = prefs.getBool('daily_question_correct') ?? false;
         final score = prefs.getInt('daily_question_score') ?? 0;
         
         if (hasAnswered) {
           setState(() {
             _hasAnswered = true;
-            _userAnswer = userAnswer;
+            _userAnswer = userAnswerList;
             _isCorrect = isCorrect;
             _score = score;
             _showAnswer = true;
@@ -148,7 +162,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
       
       await prefs.setString('daily_question_date', today);
       await prefs.setBool('daily_question_answered', _hasAnswered);
-      await prefs.setString('daily_question_answer', _userAnswer);
+      await prefs.setStringList('daily_question_answer', _userAnswer);
       await prefs.setBool('daily_question_correct', _isCorrect);
       await prefs.setInt('daily_question_score', _score);
     } catch (e) {
@@ -300,7 +314,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
 
 
   Widget _buildAnswerArea() {
-    if (_question!['question_type'] == 'choice') {
+    if (_question!['question_type'] == 'choice' || _question!['question_type'] == 'multiple_choice') {
       return _buildChoiceOptions();
     } else if (_question!['question_type'] == 'fill') {
       return _buildFillAnswer();
@@ -315,7 +329,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '请选择正确答案：',
+          '请选择答案：',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -325,7 +339,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
         const SizedBox(height: 16),
             ...options.asMap().entries.map((entry) {
               final option = entry.value;
-              final isSelected = _userAnswer == option['text'];
+              final isSelected = _userAnswer.contains(option['text']);
               final isCorrect = _showAnswer && option['is_correct'] == true;
               final isWrong = _showAnswer && isSelected && !isCorrect;
               
@@ -350,7 +364,11 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                 child: InkWell(
                   onTap: _showAnswer ? null : () {
                     setState(() {
-                      _userAnswer = option['text'] ?? '';
+                      if (_userAnswer.contains(option['text'])) {
+                        _userAnswer.remove(option['text']);
+                      } else {
+                        _userAnswer.add(option['text'] ?? '');
+                      }
                     });
                   },
                   borderRadius: BorderRadius.circular(8),
@@ -368,7 +386,7 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                           height: 24,
                           decoration: BoxDecoration(
                             color: isSelected ? Colors.blue : Colors.grey[300],
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(4),
                           ),
                           child: isSelected
                               ? const Icon(
@@ -398,19 +416,20 @@ class _DailyQuestionPageState extends State<DailyQuestionPage> {
                   ),
                 ),
               );
-            }).toList(),
+            }),
       ],
     );
   }
 
+  
   Widget _buildFillAnswer() {
     return TextField(
       enabled: !_hasAnswered,
-      controller: TextEditingController(text: _userAnswer),
+      controller: TextEditingController(text: _userAnswer.isNotEmpty ? _userAnswer[0] : ''),
       onChanged: (value) {
         if (!_hasAnswered) {
           setState(() {
-            _userAnswer = value;
+            _userAnswer = [value];
           });
         }
       },

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:legacy_pi/pages/ai_preview_page.dart';
 import 'dart:math';
 import 'dart:convert';
 import 'dart:async';
@@ -9,6 +10,7 @@ import '../models/user.dart';
 
 import '../services/global_state.dart';
 import '../services/button_config_service.dart';
+import '../services/journey_state_service.dart';
 
 class JourneyPage extends StatefulWidget {
   final VoidCallback? onScoreUpdated;
@@ -93,6 +95,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   // 粒子动画状态
   List<Particle> _particles = [];
   late AnimationController _particleAnimationController;
+  final JourneyStateService _journeyStateService = JourneyStateService();
   Set<int> _activatedButtonIndices = {}; // 记录新激活的按钮索引
 
   @override
@@ -733,6 +736,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
           // 初始化已激活按钮集合
           _activatedButtonIndices.clear();
+          _journeyStateService.clearActivatedButtons();
           final totalWeight = _totalScore;
           final weightPerButton = 500; // 调整权重以适应20个按钮
           final coveredButtons = (totalWeight / weightPerButton).floor();
@@ -744,6 +748,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                 (i == coveredButtons && remainingWeight >= 0);
             if (isInOverlay) {
               _activatedButtonIndices.add(i);
+              _journeyStateService.addActivatedButton(i);
             }
           }
 
@@ -837,6 +842,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
         // 初始化已激活按钮集合
         _activatedButtonIndices.clear();
+        _journeyStateService.clearActivatedButtons();
         final totalWeight = _totalScore;
         final weightPerButton = 500; // 调整权重以适应20个按钮
         final coveredButtons = (totalWeight / weightPerButton).floor();
@@ -848,6 +854,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
               (i == coveredButtons && remainingWeight >= 0);
           if (isInOverlay) {
             _activatedButtonIndices.add(i);
+            _journeyStateService.addActivatedButton(i);
           }
         }
 
@@ -1083,6 +1090,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       body: Stack(
           children: [
             LayoutBuilder(
@@ -1190,6 +1198,41 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+            ),
+            // 悬浮图片 - 水平靠右，垂直居中
+            Positioned(
+              right: 20, // 水平靠右
+              top: 0, // 将在LayoutBuilder中计算垂直居中位置
+              bottom: 0, // 将在LayoutBuilder中计算垂直居中位置
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return GestureDetector(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Image.asset(
+                        'assets/images/person.png',
+                        width: 80, // 增大图片宽度
+                        height: 122, // 按原比例计算高度 (1008/1536 ≈ 0.656, 80/0.656 ≈ 122)
+                        fit: BoxFit.contain, // 保持原比例显示
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.person,
+                            size: 40,
+                            color: Colors.grey[400],
+                          );
+                        },
+                      ),
+                    ),
+                    onTap: () {
+                      // 导航到 AR 页面
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ARWebviewPage()),
+                      );
+                    },
+                  );
+                },
               ),
             ),
             // 浮动定位按钮
@@ -1920,6 +1963,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
 
     // 更新已激活按钮集合
     _activatedButtonIndices.addAll(newlyActivated);
+    _journeyStateService.updateActivatedButtons(_activatedButtonIndices);
 
     // 移除图片组相关逻辑
   }
