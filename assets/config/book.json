@@ -1,0 +1,26 @@
+[
+    {
+        "id":1,
+        "title":"红星照耀中国",
+        "file":"asset/book/book1.txt",
+        "cover":"asset/images/image1.png"
+    },
+    {
+        "id":2,
+        "title":"毛泽东传",
+        "file":"asset/book/book2.txt",
+        "cover":"asset/images/image2.png"
+    },
+    {
+        "id":3,
+        "title":"毛泽东选集",
+        "file":"asset/book/book3.txt",
+        "cover":"asset/images/image4.png"
+    },
+    {
+        "id":4,
+        "title":"中国共产党简史",
+        "file":"asset/book/book4.txt",
+        "cover":"asset/images/image4.png"
+    }
+]

@@ -12,7 +12,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appTitle => '传承派';
 
   @override
-  String get news => '新闻';
+  String get news => '要闻';
 
   @override
   String get spirit => '精神';

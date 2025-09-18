@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/pages/ai_preview_page.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:math';
 import 'dart:convert';
 import 'dart:async';
@@ -14,8 +15,15 @@ import '../services/journey_state_service.dart';
 
 class JourneyPage extends StatefulWidget {
   final VoidCallback? onScoreUpdated;
+  final VoidCallback? onPageVisibleCallback;
 
-  const JourneyPage({super.key, this.onScoreUpdated});
+  const JourneyPage({super.key, this.onScoreUpdated, this.onPageVisibleCallback});
+
+  // 公共方法：检查并更新全局状态
+  Future<void> checkAndUpdateGlobalState() async {
+    // 这个方法实际逻辑在State中，通过其他方式调用
+    print('JourneyPage: checkAndUpdateGlobalState被调用');
+  }
 
   @override
   State<JourneyPage> createState() => _JourneyPageState();
@@ -98,6 +106,9 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   final JourneyStateService _journeyStateService = JourneyStateService();
   Set<int> _activatedButtonIndices = {}; // 记录新激活的按钮索引
 
+  // WebView控制器
+  late WebViewController _webViewController;
+
   @override
   void initState() {
     super.initState();
@@ -153,6 +164,11 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       duration: const Duration(milliseconds: 2000), // 粒子动画时长
       vsync: this,
     );
+
+    // 初始化WebView控制器
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadFlutterAsset('assets/htmls/thumbnail.html');
 
     _buttonScaleAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(
@@ -1200,6 +1216,33 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                 ),
               ),
             ),
+            // WebView悬浮窗口 - 左上角
+            Positioned(
+              top: 20, // 距离顶部20像素
+              left: 20, // 距离左边20像素
+              child: Container(
+                width: 120, // 宽度120像素
+                height: 240, // 高度240像素 (1:2宽高比)
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Colors.grey.withOpacity(0.3),
+                    width: 1,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(7),
+                  child: WebViewWidget(controller: _webViewController),
+                ),
+              ),
+            ),
             // 悬浮图片 - 水平靠右，垂直居中
             Positioned(
               right: 20, // 水平靠右
@@ -2156,6 +2199,56 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       }
     } catch (e) {
       print('检查并更新全局状态失败: $e');
+    }
+  }
+
+  // 公共方法：供HomePage调用，在切换到Journey页面时检查状态
+  Future<void> onPageVisible() async {
+    try {
+      print('Journey页面变为可见，开始检查全局状态...');
+
+      // 如果还在初始化阶段，跳过更新
+      if (!_hasInitializedFromDatabase) {
+        print('页面还在初始化阶段，跳过页面可见性检查');
+        return;
+      }
+
+      if (_currentUser != null) {
+        // 从数据库读取最新积分值
+        final latestScore = await _databaseHelper.getTotalUserScore(
+          _currentUser!.id!,
+        );
+        print('从数据库读取到最新积分值: $latestScore，当前页面积分: $_totalScore');
+
+        // 检查积分值是否有变化
+        if (latestScore != _totalScore) {
+          print('检测到积分值变化: $_totalScore -> $latestScore，准备触发动画和粒子效果');
+
+          // 保存之前的积分值用于动画
+          _previousTotalScore = _totalScore;
+
+          // 更新页面状态
+          setState(() {
+            _totalScore = latestScore;
+          });
+
+          // 更新全局状态
+          final globalState = GlobalState();
+          globalState.setScoreSilently(latestScore);
+
+          // 触发动画效果
+          _triggerButtonAnimation();
+
+          // 检测新激活的按钮并创建粒子效果
+          _detectNewlyActivatedButtons();
+
+          print('Journey页面变为可见后，已更新积分为: $latestScore，并触发动画和粒子效果');
+        } else {
+          print('积分值无变化，无需更新');
+        }
+      }
+    } catch (e) {
+      print('Journey页面可见性检查失败: $e');
     }
   }
 }

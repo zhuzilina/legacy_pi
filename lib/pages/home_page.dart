@@ -25,13 +25,15 @@ class _HomePageState extends State<HomePage> with RouteAware {
   late final List<Widget> _pages;
 
   final List<String> _titles = ['新旅途', '学文化', '学知识'];
-  
+
   // 为文化页面创建 GlobalKey，以便调用其悬浮按钮方法
   final GlobalKey<CulturePageState> _culturePageKey = GlobalKey<CulturePageState>();
+
   
+    
   // 悬浮按钮管理器
   FloatingActionButtonsManager? _floatingButtonsManager;
-  
+
   // 控制悬浮按钮可见性的状态
   bool _isFabVisible = true;
 
@@ -47,7 +49,9 @@ class _HomePageState extends State<HomePage> with RouteAware {
           print('HomePage: 收到积分更新通知，将通知journey页面');
         },
       ), // 新旅途页面 (左侧)
-      CulturePage(key: _culturePageKey), // 学文化页面 (中间) - 绑定 GlobalKey
+      CulturePage(
+        key: _culturePageKey,
+      ), // 学文化页面 (中间) - 绑定 GlobalKey
       const KnowledgePage(), // 学知识页面 (右侧)
     ];
 
@@ -140,19 +144,29 @@ class _HomePageState extends State<HomePage> with RouteAware {
       FloatingButtonConfig(
         text: l10n.studyFullText,
         onTap: () {
+          _hideFloatingButtons(); // 点击时隐藏悬浮按钮
           _culturePageKey.currentState?.handleStudyFullText();
         },
       ),
       FloatingButtonConfig(
         text: l10n.summarizeKeyPoints,
         onTap: () {
+          _hideFloatingButtons(); // 点击时隐藏悬浮按钮
           _culturePageKey.currentState?.handleSummarizeKeyPoints();
         },
       ),
       FloatingButtonConfig(
         text: l10n.enterConversation,
         onTap: () {
+          _hideFloatingButtons(); // 点击时隐藏悬浮按钮
           _culturePageKey.currentState?.handleEnterConversation();
+        },
+      ),
+      FloatingButtonConfig(
+        text: '朗读\n全文',
+        onTap: () {
+          _hideFloatingButtons(); // 点击时隐藏悬浮按钮
+          _culturePageKey.currentState?.handleStudyFullText();
         },
       ),
     ];
@@ -180,7 +194,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
       _hideFloatingButtons();
       return;
     }
-    
+
     if (_currentIndex == 1) {
       // 文化页面，显示悬浮按钮
       if (_floatingButtonsManager == null) {
@@ -189,6 +203,16 @@ class _HomePageState extends State<HomePage> with RouteAware {
     } else {
       // 其他页面，隐藏悬浮按钮
       _hideFloatingButtons();
+    }
+  }
+
+  // 检查JourneyPage状态的方法
+  void _checkJourneyPageState() {
+    if (_currentIndex == 0) {
+      // 当前是Journey页面，触发其状态检查
+      print('HomePage: 触发Journey页面状态检查');
+      // 直接调用JourneyPage的方法
+      (_pages[0] as JourneyPage).checkAndUpdateGlobalState();
     }
   }
 
@@ -211,15 +235,21 @@ class _HomePageState extends State<HomePage> with RouteAware {
         currentIndex: _currentIndex,
         onTap: (index) {
           // 不再需要手动调用 _saveCurrentPageState()
-          // _saveCurrentPageState(); 
-          
+          // _saveCurrentPageState();
+
           setState(() {
             _currentIndex = index;
           });
-          
+
           // 更新悬浮按钮状态
           _updateFloatingButtons();
-          
+
+          // 如果切换到Journey页面，触发状态检查
+          if (index == 0) {
+            print('HomePage: 切换到Journey页面，触发状态检查');
+            _checkJourneyPageState();
+          }
+
           // 保存底部TabBar状态
           _saveBottomTabState(index);
         },

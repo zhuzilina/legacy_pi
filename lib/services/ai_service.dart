@@ -103,6 +103,48 @@ class AiService {
     _cacheService.clearTextCache(text);
     print('AI解读缓存条目已移除');
   }
+
+  /// 总结知识内容
+  Future<String> summarizeKnowledge(String content) async {
+    try {
+      // 首先尝试从缓存获取总结结果
+      final cachedResponse = _getFromCache(content, 'knowledge_summary', null);
+      if (cachedResponse != null && cachedResponse.data != null) {
+        return cachedResponse.data!.interpretation;
+      }
+
+      // 没有缓存，调用API进行总结
+      final url = Uri.parse('${await baseUrl}/summarize');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'text': content,
+          'prompt_type': 'knowledge_summary',
+          'max_tokens': 1000,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        final aiResponse = AiInterpretationResponse.fromJson(jsonResponse);
+
+        if (aiResponse.success && aiResponse.data != null) {
+          // 将结果添加到缓存
+          _addToCache(content, 'knowledge_summary', null, aiResponse);
+          return aiResponse.data!.interpretation;
+        } else {
+          throw Exception(aiResponse.error ?? '总结失败');
+        }
+      } else {
+        throw Exception('网络请求失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('知识总结失败: $e');
+      // 返回默认总结
+      return '无法总结内容，请稍后重试。';
+    }
+  }
 }
 
 /// AI解读响应数据模型

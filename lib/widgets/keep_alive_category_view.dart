@@ -35,15 +35,20 @@ class KeepAliveCategoryView extends StatefulWidget {
   State<KeepAliveCategoryView> createState() => KeepAliveCategoryViewState();
 }
 
-class KeepAliveCategoryViewState extends State<KeepAliveCategoryView> 
+class KeepAliveCategoryViewState extends State<KeepAliveCategoryView>
     with AutomaticKeepAliveClientMixin {
-  
+
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  
+
   // 统一配色方案：白底黑字
   final Color _backgroundColor = Colors.white;
   final Color _textColor = Colors.black87;
+
+  // 格式化日期为年月日
+  String _formatDate(DateTime date) {
+    return '${date.year}年${date.month}月${date.day}日';
+  }
 
   @override
   bool get wantKeepAlive => true;
@@ -263,6 +268,33 @@ class KeepAliveCategoryViewState extends State<KeepAliveCategoryView>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 新闻分类标题（只显示在新闻分类）
+                      if (widget.category == '新闻')
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          child: Row(
+                            children: [
+                              Text(
+                                '人民日报今日要闻',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: _textColor,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Text(
+                                _formatDate(DateTime.now()),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: _textColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       // 正文内容（富文本，不可滚动，固定高度）
                       Expanded(
                         child: Stack(

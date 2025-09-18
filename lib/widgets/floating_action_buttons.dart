@@ -254,9 +254,10 @@ class FloatingActionButtonsBuilder {
     required VoidCallback onStudyFullText,
     required VoidCallback onSummarizeKeyPoints,
     required VoidCallback onEnterConversation,
+    required VoidCallback onReadFullText,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    
+
     return [
       FloatingButtonConfig(
         text: l10n.studyFullText,
@@ -269,6 +270,10 @@ class FloatingActionButtonsBuilder {
       FloatingButtonConfig(
         text: l10n.enterConversation,
         onTap: onEnterConversation,
+      ),
+      FloatingButtonConfig(
+        text: '朗读全文',
+        onTap: onReadFullText,
       ),
     ];
   }

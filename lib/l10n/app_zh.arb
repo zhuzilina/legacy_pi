@@ -5,7 +5,7 @@
     "description": "应用程序标题"
   },
   
-  "news": "新闻",
+  "news": "要闻",
   "@news": {
     "description": "新闻分类标签"
   },

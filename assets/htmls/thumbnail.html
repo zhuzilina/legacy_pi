@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas布局（特殊样式曲线）</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block; 
+            background-color: #FFFFFF; 
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="myCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const config = {
+            numberOfPoints: 10,
+            pointRadius: 8,
+            pointFillColor: '#FFFFFF',
+            pointBorderColor: '#808080',
+            pointBorderWidth: 2,
+            specialPointFillColor: '#FFF8E1',
+            specialPointBorderColor: '#DC3545',
+            lineColor: '#808080',
+            // --- 关键新增：特殊曲线颜色 ---
+            specialLineColor: '#F5B7B1', // 一个柔和的淡红色
+            // ---------------------------
+            curveTension: 0.4,
+            contentWidthPercent: 0.8,
+            distributionStdDevPercent: 0.15,
+            maxHorizontalChangePercent: 0.2,
+            debounceTime: 150
+        };
+
+        // 辅助函数...
+        let spareNormal = null;
+        function generateNormalRandom(mean, stdDev) {
+            let u, v, s, val;
+            if (spareNormal !== null) { val = spareNormal; spareNormal = null; }
+            else {
+                do { u = Math.random() * 2 - 1; v = Math.random() * 2 - 1; s = u * u + v * v; }
+                while (s >= 1 || s === 0);
+                const mul = Math.sqrt(-2.0 * Math.log(s) / s);
+                val = u * mul; spareNormal = v * mul;
+            }
+            return val * stdDev + mean;
+        }
+
+        // 主绘制函数
+        function drawLayout() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const contentWidth = canvas.width * config.contentWidthPercent;
+            const marginX = (canvas.width - contentWidth) / 2;
+            const ySpacing = canvas.height / (config.numberOfPoints + 1);
+            const centerX = canvas.width / 2;
+            const stdDevPixels = canvas.width * config.distributionStdDevPercent;
+            const maxHorizontalChangePixels = canvas.width * config.maxHorizontalChangePercent;
+
+            const points = [];
+            let previousX = null;
+            for (let i = 1; i <= config.numberOfPoints; i++) {
+                const y = i * ySpacing; let x;
+                do {
+                    x = generateNormalRandom(centerX, stdDevPixels);
+                } while ( x < marginX || x > marginX + contentWidth || (previousX !== null && Math.abs(x - previousX) > maxHorizontalChangePixels) );
+                points.push({ x, y });
+                previousX = x;
+            }
+
+            // --- 关键改动：分段式、带条件判断的曲线绘制 ---
+            if (points.length > 1) {
+                const dynamicLineWidth = Math.max(1, config.pointRadius * 2 - 4);
+
+                // 循环 N-1 次，每次绘制一段独立的曲线
+                for (let i = 0; i < points.length - 1; i++) {
+                    ctx.beginPath(); // 为每段曲线开始新路径
+                    
+                    // 设置每段曲线的起点
+                    ctx.moveTo(points[i].x, points[i].y); 
+
+                    // 计算控制点
+                    const p0 = (i > 0) ? points[i - 1] : points[i];
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const p3 = (i < points.length - 2) ? points[i + 2] : p2;
+                    const cp1x = p1.x + (p2.x - p0.x) / 6 * config.curveTension;
+                    const cp1y = p1.y + (p2.y - p0.y) / 6 * config.curveTension;
+                    const cp2x = p2.x - (p3.x - p1.x) / 6 * config.curveTension;
+                    const cp2y = p2.y - (p3.y - p1.y) / 6 * config.curveTension;
+
+                    // 根据索引判断使用哪种颜色
+                    // i >= points.length - 3 表示连接最后三个点的两条线段
+                    if (i >= points.length - 3) {
+                        ctx.strokeStyle = config.specialLineColor;
+                    } else {
+                        ctx.strokeStyle = config.lineColor;
+                    }
+                    
+                    ctx.lineWidth = dynamicLineWidth;
+                    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+                    ctx.stroke(); // 立即绘制当前线段
+                }
+            }
+
+            // 绘制点的逻辑（无变化）
+            for (let i = 0; i < points.length; i++) {
+                const point = points[i];
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, config.pointRadius, 0, 2 * Math.PI);
+                if (i >= points.length - 3) {
+                    ctx.fillStyle = config.specialPointFillColor;
+                    ctx.strokeStyle = config.specialPointBorderColor;
+                } else {
+                    ctx.fillStyle = config.pointFillColor;
+                    ctx.strokeStyle = config.pointBorderColor;
+                }
+                ctx.fill();
+                ctx.lineWidth = config.pointBorderWidth;
+                ctx.stroke();
+            }
+        }
+
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(drawLayout, config.debounceTime);
+        });
+
+        drawLayout();
+    </script>
+
+</body>
+</html>

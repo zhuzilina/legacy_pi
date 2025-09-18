@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/widgets/ai_interpretation_dialog.dart';
 import 'package:legacy_pi/widgets/key_points_dialog.dart';
+import 'package:legacy_pi/widgets/full_content_dialog.dart';
 import 'package:legacy_pi/pages/chat_page.dart';
-import 'package:defer_pointer/defer_pointer.dart';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../services/news_api_service.dart';
 import '../services/ai_service.dart';
 import '../services/unified_cache_service.dart';
 import '../services/md_docs_api_service.dart';
+import '../config/api_config.dart';
 import '../models/content_item.dart';
 import '../models/article.dart';
-import '../widgets/rich_content_widget.dart';
 import '../widgets/keep_alive_category_view.dart';
 import '../l10n/app_localizations.dart';
 
@@ -44,6 +46,8 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
   final Map<String, bool> _isLoadingMap = {};
   final Map<String, String> _errorMessageMap = {};
   final Map<String, List<Article>> _articlesMap = {};
+  final Map<String, List<dynamic>> _knowledgeMap = {}; // 知识理论数据
+
   
   // 统一配色方案：白底黑字
   final Color _backgroundColor = Colors.white;
@@ -65,7 +69,8 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     
     // 获取本地化字符串
     final l10n = AppLocalizations.of(context)!;
-    _categories = [l10n.news, l10n.spirit, l10n.people, l10n.partyHistory];
+    // 内部逻辑使用"新闻"，显示使用本地化的"要闻"，添加思想和文章
+    _categories = ['新闻', l10n.people, '思想', '文章'];
     
     // 初始化TabController（如果还没有初始化）
     try {
@@ -80,6 +85,7 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
         _isLoadingMap[category] = false;
         _errorMessageMap[category] = '';
         _articlesMap[category] = [];
+        _knowledgeMap[category] = [];
       }
       
       // 检查是否需要加载默认分类（新闻）的数据
@@ -101,24 +107,27 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     super.dispose();
   }
   
-  // 悬浮按钮回调方法 - 现在由主页调用
+  // 悬浮按钮回调方法 - 统一处理所有分类
   void handleStudyFullText() {
     final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
+      // 所有分类都显示AI解读
       _showAiInterpretationDialog(currentArticle);
     }
   }
-  
+
   void handleSummarizeKeyPoints() {
     final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
+      // 所有分类都显示要点总结
       _showKeyPointsDialog(currentArticle);
     }
   }
-  
+
   void handleEnterConversation() {
     final currentArticle = _getCurrentArticle();
     if (currentArticle != null) {
+      // 所有分类都进入对话页面
       _navigateToChatPage(currentArticle);
     }
   }
@@ -127,7 +136,16 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
   Article? _getCurrentArticle() {
     if (_currentTabIndex >= 0 && _currentTabIndex < _categories.length) {
       final category = _categories[_currentTabIndex];
-      final articles = _articlesMap[category] ?? [];
+      List<Article> articles;
+
+      // 对于思想和文章分类，使用转换后的Article对象
+      if (category == '思想' || category == '文章') {
+        final knowledgeList = _knowledgeMap[category] ?? [];
+        articles = _convertKnowledgeToArticles(knowledgeList, category);
+      } else {
+        articles = _articlesMap[category] ?? [];
+      }
+
       if (articles.isNotEmpty) {
         // 从KeepAliveCategoryView获取当前页面位置
         final viewKey = _categoryViewKeys[category];
@@ -140,6 +158,25 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
       }
     }
     return null;
+  }
+
+  
+  // 将知识数据转换为Article对象
+  List<Article> _convertKnowledgeToArticles(List<dynamic> knowledgeList, String category) {
+    return knowledgeList.map((knowledge) {
+      return Article(
+        id: knowledge['id']?.toString() ?? '${category}_${knowledge.hashCode}',
+        title: knowledge['title'] ?? '无标题',
+        source: knowledge['source'] ?? '未知来源',
+        publishTime: DateTime.now().toIso8601String(),
+        category: category,
+        wordCount: (knowledge['content'] as String?)?.length ?? 0,
+        originalUrl: '',
+        metaInfo: '',
+        content: knowledge['content'] ?? '',
+        collectTime: DateTime.now().toIso8601String(),
+      );
+    }).toList();
   }
   
   void _onTabChanged() {
@@ -226,8 +263,10 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
       // 根据分类选择不同的数据源
       if (category == '新闻') {
         await _loadNewsArticles(category);
+      } else if (category == '思想' || category == '文章') {
+        await _loadKnowledgeArticles(category);
       } else {
-        // 精神、人物、党史分类使用MD文档API
+        // 人物分类使用MD文档API
         await _loadMdDocsArticles(category);
       }
       
@@ -303,6 +342,51 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     _preloadArticleImages(articles);
 
     print('$category 文章加载完成，共 ${articles.length} 篇');
+  }
+
+  // 加载知识理论数据（用于新思想、知识理论分类）
+  Future<void> _loadKnowledgeArticles(String category) async {
+    try {
+      print('开始从知识理论API加载 $category 分类数据...');
+
+      // 映射分类到API需要的参数
+      final apiCategory = category == '思想' ? 'new_thought' : 'theory';
+
+      final baseUrl = await ApiConfig.knowledgeQuizBaseUrl;
+      final response = await http.get(
+        Uri.parse('$baseUrl/knowledge/?category=$apiCategory'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            _knowledgeMap[category] = data['data']['knowledge_list'] ?? [];
+            _isLoadingMap[category] = false;
+            _errorMessageMap[category] = '';
+          });
+
+          print('$category 知识理论加载完成，共 ${_knowledgeMap[category]!.length} 条');
+        } else {
+          setState(() {
+            _errorMessageMap[category] = '获取知识数据失败';
+            _isLoadingMap[category] = false;
+          });
+        }
+      } else {
+        setState(() {
+          _errorMessageMap[category] = '网络请求失败';
+          _isLoadingMap[category] = false;
+        });
+      }
+    } catch (e) {
+      print('加载 $category 知识理论时发生错误: $e');
+      setState(() {
+        _isLoadingMap[category] = false;
+        _errorMessageMap[category] = '加载知识理论时发生错误: $e';
+      });
+    }
   }
 
   // 加载MD文档数据（用于精神、人物、党史分类）
@@ -406,7 +490,14 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
 
   // 强制刷新指定分类的缓存
   void refreshCategoryCache(String category) {
-    final dataSource = category == '新闻' ? 'news' : 'md_docs';
+    String dataSource;
+    if (category == '新闻') {
+      dataSource = 'news';
+    } else if (category == '思想' || category == '文章') {
+      dataSource = 'knowledge';
+    } else {
+      dataSource = 'md_docs';
+    }
     
     // 清除该分类的缓存
     _cacheService.clearCategoryArticleCache(category, dataSource);
@@ -422,7 +513,14 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
 
   // 获取缓存信息
   Map<String, dynamic> getCategoryCacheInfo(String category) {
-    final dataSource = category == '新闻' ? 'news' : 'md_docs';
+    String dataSource;
+    if (category == '新闻') {
+      dataSource = 'news';
+    } else if (category == '思想' || category == '文章') {
+      dataSource = 'knowledge';
+    } else {
+      dataSource = 'md_docs';
+    }
     return _cacheService.getArticleCacheInfo(category, dataSource);
   }
 
@@ -538,6 +636,7 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       color: _backgroundColor,
       child: Column(
@@ -549,7 +648,7 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
             child: TabBar(
               controller: _tabController,
               tabs: _categories.map((category) => Tab(
-                text: category,
+                text: category == '新闻' ? l10n.news : category,
               )).toList(),
               labelColor: _textColor,
               unselectedLabelColor: _textColor.withOpacity(0.6),
@@ -576,10 +675,28 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     final isLoading = _isLoadingMap[category] ?? false;
     final errorMessage = _errorMessageMap[category] ?? '';
     final articles = _articlesMap[category] ?? [];
+    final knowledgeList = _knowledgeMap[category] ?? [];
 
     // 为每个分类创建唯一的GlobalKey
     if (!_categoryViewKeys.containsKey(category)) {
       _categoryViewKeys[category] = GlobalKey<KeepAliveCategoryViewState>();
+    }
+
+    // 将知识数据转换为Article对象，统一使用KeepAliveCategoryView
+    if (category == '思想' || category == '文章') {
+      final knowledgeArticles = _convertKnowledgeToArticles(knowledgeList, category);
+      return KeepAliveCategoryView(
+        key: _categoryViewKeys[category],
+        category: category,
+        articles: knowledgeArticles,
+        isLoading: isLoading,
+        errorMessage: errorMessage,
+        cacheService: _cacheService,
+        onShowFullContent: _showFullContentDialog,
+        onShowAiInterpretation: (article) => _showAiInterpretationDialog(article),
+        onShowKeyPoints: _showKeyPointsDialog,
+        onNavigateToChat: _navigateToChatPage,
+      );
     }
 
     return KeepAliveCategoryView(
@@ -596,41 +713,17 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     );
   }
 
+  
 
            // 显示全文内容对话框
      void _showFullContentDialog(Article article) {
-       // 使用 showGeneralDialog 并设置较低的层级，确保浮动按钮能够显示在最上面
-       showGeneralDialog(
+       // 使用 FullContentDialog 组件，支持TTS功能
+       FullContentDialog.show(
          context: context,
-         barrierDismissible: true,
-         barrierColor: Colors.black54,
-         barrierLabel: '',
-         transitionDuration: const Duration(milliseconds: 300),
-         pageBuilder: (context, animation, secondaryAnimation) {
-           return TweenAnimationBuilder<double>(
-             duration: const Duration(milliseconds: 300),
-             curve: Curves.easeOutBack,
-             tween: Tween(begin: 0.0, end: 1.0),
-             builder: (context, scale, child) {
-               return Transform.scale(
-                 scale: scale,
-                 child: _FullContentDialog(
-                   article: article,
-                   cacheService: _cacheService,
-                   onClose: () {
-                     Navigator.of(context).pop();
-                   },
-                 ),
-               );
-             },
-           );
-         },
-         transitionBuilder: (context, animation, secondaryAnimation, child) {
-           return FadeTransition(
-             opacity: animation,
-             child: child,
-           );
-         },
+         article: article,
+         cacheService: _cacheService,
+         enableTts: true, // 启用TTS功能
+         autoPlay: false, // 默认不自动播放
        );
      }
      
@@ -713,157 +806,10 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
        );
      }
 
+  
+  
 
  }
 
 
 
-/// 全文内容对话框Widget（恢复原来的查看更多功能）
-class _FullContentDialog extends StatelessWidget {
-  final Article article;
-  final UnifiedCacheService cacheService;
-  final VoidCallback? onClose;
-
-  const _FullContentDialog({
-    required this.article,
-    required this.cacheService,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      type: MaterialType.transparency,
-      child: DeferredPointerHandler( // 包裹根组件，处理超出边界的点击事件
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          color: Colors.black54,
-          child: Center(
-            child: Stack(
-              clipBehavior: Clip.none, // 允许子元素移出Stack边界
-              children: [
-                Container(
-                  width: MediaQuery.of(context).size.width * 0.9,
-                  height: MediaQuery.of(context).size.height * 0.72, // 调整为屏幕高度的72%
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 文章标题（现在在滚动区域内）
-                          Text(
-                            article.title,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                              height: 1.3,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          // 内容标题
-                          Text(
-                            AppLocalizations.of(context)!.articleContent,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          // 使用RichContentWidget显示内容，支持图片和文本选择
-                          FutureBuilder<List<ContentItem>>(
-                            future: article.parseContentItems(cacheService: cacheService),
-                            builder: (context, snapshot) {
-                              if (snapshot.hasData) {
-                                return RichContentWidget(
-                                  contentItems: snapshot.data!,
-                                  textStyle: const TextStyle(
-                                    fontSize: 16,
-                                    height: 1.6,
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                  textColor: Colors.black87,
-                                  enableScrolling: false, // 在弹窗中禁用滚动
-                                  article: article, // 传递文章对象
-                                  contextText: article.content, // 传递文章内容作为上下文
-                                  cacheService: cacheService, // 传递缓存服务
-                                );
-                              } else {
-                                return const Center(child: CircularProgressIndicator());
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 20), // 底部留出空间
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                // 底部悬浮关闭按钮 - 位于弹窗水平中心，距离弹窗底部-67像素
-                Positioned(
-                  bottom: -67,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: DeferPointer( // 包裹需要响应事件的组件
-                      child: GestureDetector(
-                        onTap: () {
-                          if (onClose != null) {
-                            onClose!();
-                          } else {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.close,
-                            color: Colors.grey,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
