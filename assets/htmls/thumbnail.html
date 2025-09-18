@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canvas布局（特殊样式曲线）</title>
+    <title>SVG布局（特殊样式曲线）</title>
     <style>
         html, body {
             margin: 0;
@@ -12,19 +12,18 @@
             width: 100%;
             height: 100%;
         }
-        canvas {
-            display: block; 
-            background-color: #FFFFFF; 
+        svg {
+            display: block;
+            background-color: #FFFFFF;
         }
     </style>
 </head>
 <body>
 
-    <canvas id="myCanvas"></canvas>
+    <svg id="mySVG" width="100%" height="100%"></svg>
 
     <script>
-        const canvas = document.getElementById('myCanvas');
-        const ctx = canvas.getContext('2d');
+        const svg = document.getElementById('mySVG');
 
         const config = {
             numberOfPoints: 10,
@@ -32,20 +31,18 @@
             pointFillColor: '#FFFFFF',
             pointBorderColor: '#808080',
             pointBorderWidth: 2,
-            specialPointFillColor: '#FFF8E1',
+            specialPointFillColor: '#FFF8E1', 
             specialPointBorderColor: '#DC3545',
             lineColor: '#808080',
-            // --- 关键新增：特殊曲线颜色 ---
-            specialLineColor: '#F5B7B1', // 一个柔和的淡红色
-            // ---------------------------
+            specialLineColor: '#F5B7B1',
             curveTension: 0.4,
             contentWidthPercent: 0.8,
             distributionStdDevPercent: 0.15,
-            maxHorizontalChangePercent: 0.2,
+            maxHorizontalChangePercent: 0.2, 
             debounceTime: 150
         };
 
-        // 辅助函数...
+        // 辅助函数：正态分布随机数生成器（与Canvas版本相同）
         let spareNormal = null;
         function generateNormalRandom(mean, stdDev) {
             let u, v, s, val;
@@ -61,15 +58,18 @@
 
         // 主绘制函数
         function drawLayout() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
 
-            const contentWidth = canvas.width * config.contentWidthPercent;
-            const marginX = (canvas.width - contentWidth) / 2;
-            const ySpacing = canvas.height / (config.numberOfPoints + 1);
-            const centerX = canvas.width / 2;
-            const stdDevPixels = canvas.width * config.distributionStdDevPercent;
-            const maxHorizontalChangePixels = canvas.width * config.maxHorizontalChangePercent;
+            // 清空SVG内容
+            svg.innerHTML = ''; 
+
+            const contentWidth = width * config.contentWidthPercent;
+            const marginX = (width - contentWidth) / 2;
+            const ySpacing = height / (config.numberOfPoints + 1);
+            const centerX = width / 2;
+            const stdDevPixels = width * config.distributionStdDevPercent;
+            const maxHorizontalChangePixels = width * config.maxHorizontalChangePercent;
 
             const points = [];
             let previousX = null;
@@ -82,65 +82,71 @@
                 previousX = x;
             }
 
-            // --- 关键改动：分段式、带条件判断的曲线绘制 ---
+            // 绘制曲线
             if (points.length > 1) {
                 const dynamicLineWidth = Math.max(1, config.pointRadius * 2 - 4);
 
-                // 循环 N-1 次，每次绘制一段独立的曲线
                 for (let i = 0; i < points.length - 1; i++) {
-                    ctx.beginPath(); // 为每段曲线开始新路径
-                    
-                    // 设置每段曲线的起点
-                    ctx.moveTo(points[i].x, points[i].y); 
-
-                    // 计算控制点
                     const p0 = (i > 0) ? points[i - 1] : points[i];
                     const p1 = points[i];
                     const p2 = points[i + 1];
                     const p3 = (i < points.length - 2) ? points[i + 2] : p2;
+
                     const cp1x = p1.x + (p2.x - p0.x) / 6 * config.curveTension;
                     const cp1y = p1.y + (p2.y - p0.y) / 6 * config.curveTension;
                     const cp2x = p2.x - (p3.x - p1.x) / 6 * config.curveTension;
                     const cp2y = p2.y - (p3.y - p1.y) / 6 * config.curveTension;
 
+                    // 创建 SVG <path> 元素
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    const d = `M ${p1.x} ${p1.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+                    path.setAttribute('d', d);
+                    path.setAttribute('fill', 'none');
+                    path.setAttribute('stroke-width', dynamicLineWidth);
+
                     // 根据索引判断使用哪种颜色
-                    // i >= points.length - 3 表示连接最后三个点的两条线段
                     if (i >= points.length - 3) {
-                        ctx.strokeStyle = config.specialLineColor;
+                        path.setAttribute('stroke', config.specialLineColor);
                     } else {
-                        ctx.strokeStyle = config.lineColor;
+                        path.setAttribute('stroke', config.lineColor);
                     }
                     
-                    ctx.lineWidth = dynamicLineWidth;
-                    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-                    ctx.stroke(); // 立即绘制当前线段
+                    svg.appendChild(path);
                 }
             }
-
-            // 绘制点的逻辑（无变化）
+            
+            // 绘制点
             for (let i = 0; i < points.length; i++) {
                 const point = points[i];
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, config.pointRadius, 0, 2 * Math.PI);
+
+                // 创建 SVG <circle> 元素
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', point.x);
+                circle.setAttribute('cy', point.y);
+                circle.setAttribute('r', config.pointRadius);
+                circle.setAttribute('stroke-width', config.pointBorderWidth);
+
+                // 根据索引设置特殊样式
                 if (i >= points.length - 3) {
-                    ctx.fillStyle = config.specialPointFillColor;
-                    ctx.strokeStyle = config.specialPointBorderColor;
+                    circle.setAttribute('fill', config.specialPointFillColor);
+                    circle.setAttribute('stroke', config.specialPointBorderColor);
                 } else {
-                    ctx.fillStyle = config.pointFillColor;
-                    ctx.strokeStyle = config.pointBorderColor;
+                    circle.setAttribute('fill', config.pointFillColor);
+                    circle.setAttribute('stroke', config.pointBorderColor);
                 }
-                ctx.fill();
-                ctx.lineWidth = config.pointBorderWidth;
-                ctx.stroke();
+                
+                svg.appendChild(circle);
             }
         }
 
+        // 窗口大小调整事件监听（与Canvas版本相同）
         let resizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(drawLayout, config.debounceTime);
         });
 
+        // 初始绘制
         drawLayout();
     </script>
 

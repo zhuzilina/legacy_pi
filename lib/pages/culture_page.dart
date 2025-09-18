@@ -17,7 +17,14 @@ import '../widgets/keep_alive_category_view.dart';
 import '../l10n/app_localizations.dart';
 
 class CulturePage extends StatefulWidget {
-  const CulturePage({super.key});
+  final VoidCallback? onHideFloatingButtons;
+  final VoidCallback? onShowFloatingButtons;
+
+  const CulturePage({
+    super.key,
+    this.onHideFloatingButtons,
+    this.onShowFloatingButtons,
+  });
 
   @override
   State<CulturePage> createState() => CulturePageState();
@@ -129,6 +136,24 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
     if (currentArticle != null) {
       // 所有分类都进入对话页面
       _navigateToChatPage(currentArticle);
+    }
+  }
+
+  void handleReadFullTextWithTTS() {
+    final currentArticle = _getCurrentArticle();
+    if (currentArticle != null) {
+      // 显示全文内容对话框并自动播放TTS
+      FullContentDialog.show(
+        context: context,
+        article: currentArticle,
+        cacheService: _cacheService,
+        enableTts: true, // 启用TTS功能
+        autoPlay: true,  // 自动播放
+        onClose: () {
+          // 对话框关闭时恢复悬浮按钮
+          widget.onShowFloatingButtons?.call();
+        },
+      );
     }
   }
 
@@ -696,6 +721,7 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
         onShowAiInterpretation: (article) => _showAiInterpretationDialog(article),
         onShowKeyPoints: _showKeyPointsDialog,
         onNavigateToChat: _navigateToChatPage,
+        onHideFloatingButtons: widget.onHideFloatingButtons,
       );
     }
 
@@ -710,6 +736,7 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
       onShowAiInterpretation: (article) => _showAiInterpretationDialog(article),
       onShowKeyPoints: _showKeyPointsDialog,
       onNavigateToChat: _navigateToChatPage,
+      onHideFloatingButtons: widget.onHideFloatingButtons,
     );
   }
 
@@ -724,6 +751,10 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
          cacheService: _cacheService,
          enableTts: true, // 启用TTS功能
          autoPlay: false, // 默认不自动播放
+         onClose: () {
+           // 对话框关闭时恢复悬浮按钮
+           widget.onShowFloatingButtons?.call();
+         },
        );
      }
      

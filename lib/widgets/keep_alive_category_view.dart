@@ -17,6 +17,7 @@ class KeepAliveCategoryView extends StatefulWidget {
   final Function(Article) onShowAiInterpretation;
   final Function(Article) onShowKeyPoints;
   final Function(Article) onNavigateToChat;
+  final VoidCallback? onHideFloatingButtons;
 
   const KeepAliveCategoryView({
     super.key,
@@ -29,6 +30,7 @@ class KeepAliveCategoryView extends StatefulWidget {
     required this.onShowAiInterpretation,
     required this.onShowKeyPoints,
     required this.onNavigateToChat,
+    this.onHideFloatingButtons,
   });
 
   @override
@@ -345,7 +347,10 @@ class KeepAliveCategoryViewState extends State<KeepAliveCategoryView>
                                 ),
                                 child: Center(
                                   child: ElevatedButton.icon(
-                                    onPressed: () => widget.onShowFullContent(article),
+                                    onPressed: () {
+                                      widget.onHideFloatingButtons?.call();
+                                      widget.onShowFullContent(article);
+                                    },
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: _textColor,
                                       foregroundColor: _backgroundColor,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'culture_page.dart';
 import 'journey_page.dart';
 import 'knowledge_page.dart';
+import 'trip_page/trip_page.dart';
 import 'profile_drawer.dart';
 import '../services/global_state.dart';
 import '../services/unified_cache_service.dart';
@@ -24,7 +25,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
   // 将原来的 getter 修改为 final List<Widget>
   late final List<Widget> _pages;
 
-  final List<String> _titles = ['新旅途', '学文化', '学知识'];
+  final List<String> _titles = ['新旅途', '学文化', '学知识', '旅游'];
 
   // 为文化页面创建 GlobalKey，以便调用其悬浮按钮方法
   final GlobalKey<CulturePageState> _culturePageKey = GlobalKey<CulturePageState>();
@@ -51,8 +52,11 @@ class _HomePageState extends State<HomePage> with RouteAware {
       ), // 新旅途页面 (左侧)
       CulturePage(
         key: _culturePageKey,
+        onHideFloatingButtons: _hideFloatingButtons,
+        onShowFloatingButtons: _updateFloatingButtons,
       ), // 学文化页面 (中间) - 绑定 GlobalKey
       const KnowledgePage(), // 学知识页面 (右侧)
+      const TripPage(), // 旅游页面 (新增)
     ];
 
     // 恢复底部TabBar状态
@@ -166,7 +170,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
         text: '朗读\n全文',
         onTap: () {
           _hideFloatingButtons(); // 点击时隐藏悬浮按钮
-          _culturePageKey.currentState?.handleStudyFullText();
+          _culturePageKey.currentState?.handleReadFullTextWithTTS();
         },
       ),
     ];
@@ -262,6 +266,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
           BottomNavigationBarItem(icon: Icon(Icons.map), label: '新旅途'),
           BottomNavigationBarItem(icon: Icon(Icons.flag), label: '学文化'),
           BottomNavigationBarItem(icon: Icon(Icons.school), label: '学知识'),
+          BottomNavigationBarItem(icon: Icon(Icons.travel_explore), label: '旅游'),
         ],
       ),
       drawer: ProfileDrawer(

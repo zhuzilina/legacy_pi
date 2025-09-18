@@ -765,11 +765,10 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
                     child: DeferPointer(
                       child: GestureDetector(
                         onTap: () {
-                          if (widget.onClose != null) {
-                            widget.onClose!();
-                          } else {
-                            Navigator.of(context).pop();
-                          }
+                          // 先调用回调函数
+                          widget.onClose?.call();
+                          // 然后关闭对话框
+                          Navigator.of(context).pop();
                         },
                         child: Container(
                           width: 48,
