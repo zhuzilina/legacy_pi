@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class TeamCard extends StatelessWidget {
   final Map<String, dynamic> team;
@@ -60,11 +61,49 @@ class AttractionCard extends StatelessWidget {
 
   const AttractionCard({super.key, required this.attraction});
 
+  // 处理官网链接跳转
+  Future<void> _launchWebsite(BuildContext context, String websiteUrl) async {
+    final Uri uri = Uri.parse(websiteUrl);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('无法打开链接: $websiteUrl'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('打开链接时发生错误: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () {
-        // 可以添加点击事件，比如显示景点详情
+        if (attraction['url'] != null && attraction['url'].toString().isNotEmpty) {
+          _launchWebsite(context, attraction['url'].toString());
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('该景点暂无官方网站'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       },
       child: Container(
         width: 280,

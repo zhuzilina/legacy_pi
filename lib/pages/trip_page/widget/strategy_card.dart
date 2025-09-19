@@ -1,15 +1,53 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class StrategyCard extends StatelessWidget {
   final Map<String, dynamic> strategy;
 
   const StrategyCard({super.key, required this.strategy});
 
+  // 处理URL跳转
+  Future<void> _launchURL(BuildContext context, String url) async {
+    final Uri uri = Uri.parse(url);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('无法打开链接: $url'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('打开链接时发生错误: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () {
-        // 可以添加点击事件，比如显示攻略详情
+        if (strategy['url'] != null && strategy['url'].toString().isNotEmpty) {
+          _launchURL(context, strategy['url'].toString());
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('该攻略暂无相关链接'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       },
       child: Container(
         margin: EdgeInsets.zero,

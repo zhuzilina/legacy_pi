@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:legacy_pi/pages/question.dart';
 import 'package:legacy_pi/services/global_state.dart';
 import 'package:legacy_pi/models/user.dart';
+import 'package:legacy_pi/database/database_helper.dart';
 
 class PKPage extends StatefulWidget {
   const PKPage({super.key});
@@ -24,6 +26,8 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
   // 用户相关
   User? _currentUser;
   String? _userAvatarPath;
+  static const String _opponentName = '努力的大明'; // 对手昵称
+  static const String _opponentAvatar = 'assets/images/avatar1.png'; // 对手头像
 
   @override
   void initState() {
@@ -45,6 +49,30 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
     _startMatching();
   }
 
+  // 构建跳动的点
+  Widget _buildJumpingDot(int index) {
+    return AnimatedBuilder(
+      animation: _titleController,
+      builder: (context, child) {
+        // 根据索引和动画进度计算偏移量
+        final progress = _titleController.value;
+        final jumpOffset = math.sin(progress * math.pi * 2 + index * math.pi / 3) * 10;
+
+        return Transform.translate(
+          offset: Offset(0, -jumpOffset.abs()),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: Colors.red[700],
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // 初始化用户和头像
   Future<void> _initializeUserAndAvatar() async {
     try {
@@ -52,10 +80,74 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
       final globalState = GlobalState();
       _currentUser = globalState.currentUser;
 
+      // 如果全局状态没有用户数据，从SQLite数据库读取
+      if (_currentUser == null) {
+        await _loadUserFromDatabase();
+      }
+
       // 加载用户头像
       await _loadUserAvatar();
     } catch (e) {
       debugPrint('初始化用户和头像失败: $e');
+    }
+  }
+
+  // 从SQLite数据库读取用户数据
+  Future<void> _loadUserFromDatabase() async {
+    try {
+      final dbHelper = DatabaseHelper();
+      // 获取数据库中的第一个用户作为当前用户
+      final List<Map<String, dynamic>> users = await dbHelper.database.then((db) {
+        return db.query('users', limit: 1);
+      });
+
+      if (users.isNotEmpty) {
+        final userData = users.first;
+        setState(() {
+          _currentUser = User(
+            id: userData['id'],
+            username: userData['username'] ?? userData['nickname'] ?? '用户',
+            email: userData['email'] ?? 'user@example.com',
+            avatarPath: userData['avatar_path'],
+            nickname: userData['nickname'] ?? userData['username'] ?? '用户',
+            createdAt: userData['created_at'] != null
+                ? DateTime.parse(userData['created_at'])
+                : DateTime.now(),
+            updatedAt: userData['updated_at'] != null
+                ? DateTime.parse(userData['updated_at'])
+                : DateTime.now(),
+          );
+        });
+        debugPrint('从数据库加载用户数据: ${_currentUser?.username}');
+      } else {
+        // 如果数据库中没有用户数据，使用默认用户
+        setState(() {
+          _currentUser = User(
+            id: 1,
+            username: '当前用户',
+            email: 'user@example.com',
+            avatarPath: null,
+            nickname: '当前用户',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+        });
+        debugPrint('数据库中没有用户数据，使用默认用户');
+      }
+    } catch (e) {
+      debugPrint('从数据库加载用户数据失败: $e');
+      // 发生错误时使用默认用户
+      setState(() {
+        _currentUser = User(
+          id: 1,
+          username: '当前用户',
+          email: 'user@example.com',
+          avatarPath: null,
+          nickname: '当前用户',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+      });
     }
   }
 
@@ -183,7 +275,7 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
                 // 头像区域
                 SizedBox(
                   width: double.infinity,
-                  height: 200,
+                  height: 240,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -191,46 +283,75 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
                       Positioned(
                         left: 0,
                         top: 0,
-                        bottom: 0,
-                        child: CircleAvatar(
-                          radius: 50,
-                          backgroundColor: Colors.white.withValues(alpha: 0.8),
-                          child: CircleAvatar(
-                            radius: 45,
-                            backgroundColor: Colors.grey[300],
-                            child: _userAvatarPath != null
-                                ? ClipOval(
-                                    child: Image.file(
-                                      File(_userAvatarPath!),
-                                      width: 90,
-                                      height: 90,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Icon(
-                                          Icons.person,
-                                          size: 40,
-                                          color: Colors.grey[600],
-                                        );
-                                      },
-                                    ),
-                                  )
-                                : Icon(
-                                    Icons.person,
-                                    size: 40,
-                                    color: Colors.grey[600],
-                                  ),
-                          ),
+                        bottom: 40, // 为昵称留出空间
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 50,
+                              backgroundColor: Colors.white.withValues(alpha: 0.8),
+                              child: CircleAvatar(
+                                radius: 45,
+                                backgroundColor: Colors.grey[300],
+                                child: _userAvatarPath != null
+                                    ? ClipOval(
+                                        child: Image.file(
+                                          File(_userAvatarPath!),
+                                          width: 90,
+                                          height: 90,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Icon(
+                                              Icons.person,
+                                              size: 40,
+                                              color: Colors.grey[600],
+                                            );
+                                          },
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.person,
+                                        size: 40,
+                                        color: Colors.grey[600],
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // 用户昵称
+                            Text(
+                              _currentUser?.nickname ?? _currentUser?.username ?? '我',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
 
-                      // 加载动画
+                      // VS文字（中间）
+                      const Text(
+                        'VS',
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+
+                      // 加载动画 - 三个点跳动（在VS下方）
                       if (!_matched) ...[
-                        SizedBox(
-                          width: 60,
-                          height: 60,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 4,
-                            color: Colors.white.withValues(alpha: 0.8),
+                        Positioned(
+                          bottom: 10,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildJumpingDot(0),
+                              const SizedBox(width: 4),
+                              _buildJumpingDot(1),
+                              const SizedBox(width: 4),
+                              _buildJumpingDot(2),
+                            ],
                           ),
                         ),
                       ],
@@ -240,20 +361,32 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
                         duration: const Duration(milliseconds: 500),
                         right: _matched ? 0 : -MediaQuery.of(context).size.width / 4,
                         top: 0,
-                        bottom: 0,
+                        bottom: 40, // 为昵称留出空间
                         child: Transform.scale(
                           scale: _matched ? 1.0 : 0.5,
                           child: Opacity(
                             opacity: _matched ? 1.0 : 0.0,
-                            child: CircleAvatar(
-                              radius: 50,
-                              backgroundColor: Colors.white.withValues(alpha: 0.8),
-                              child: const CircleAvatar(
-                                radius: 45,
-                                backgroundImage: NetworkImage(
-                                  'https://picsum.photos/200/150?random=2',
+                            child: Column(
+                              children: [
+                                CircleAvatar(
+                                  radius: 50,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.8),
+                                  child: CircleAvatar(
+                                    radius: 45,
+                                    backgroundImage: AssetImage(_opponentAvatar),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(height: 8),
+                                // 对手昵称
+                                Text(
+                                  _opponentName,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -261,35 +394,7 @@ class _PKState extends State<PKPage> with SingleTickerProviderStateMixin {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-
-                // 进度条
-                Container(
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: MediaQuery.of(context).size.width * 0.6 * _progress,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.3),
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 48),
 
                 // 匹配成功提示
                 AnimatedOpacity(

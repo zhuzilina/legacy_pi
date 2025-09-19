@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'package:legacy_pi/pages/pk.dart';
 import 'dart:convert';
 import 'daily_question_page.dart';
-import 'knowledge_detail_page.dart';
 import 'recent_learning_page.dart';
-import '../config/api_config.dart';
+import 'book_reader_page.dart';
+import '../models/article.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({super.key});
@@ -14,77 +14,36 @@ class KnowledgePage extends StatefulWidget {
   State<KnowledgePage> createState() => _KnowledgePageState();
 }
 
-class _KnowledgePageState extends State<KnowledgePage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  
-  // API状态管理
-  Map<String, List<dynamic>> _knowledgeData = {
-    'new_thought': [],
-    'theory': [],
-  };
-  Map<String, bool> _loadingStates = {
-    'new_thought': false,
-    'theory': false,
-  };
-  Map<String, String> _errorStates = {
-    'new_thought': '',
-    'theory': '',
-  };
-  
+class _KnowledgePageState extends State<KnowledgePage> {
+  // 书籍数据
+  List<Map<String, dynamic>> _books = [];
+  bool _isLoading = true;
+  String _errorMessage = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadKnowledgeData('new_thought');
-    _loadKnowledgeData('theory');
+    _loadBooksData();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  // API方法
-
-  Future<void> _loadKnowledgeData(String category) async {
+  // 加载书籍数据
+  Future<void> _loadBooksData() async {
     setState(() {
-      _loadingStates[category] = true;
-      _errorStates[category] = '';
+      _isLoading = true;
+      _errorMessage = '';
     });
 
     try {
-      final baseUrl = await ApiConfig.knowledgeQuizBaseUrl;
-      final response = await http.get(
-        Uri.parse('$baseUrl/knowledge/?category=$category'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success'] == true) {
-          setState(() {
-            _knowledgeData[category] = data['data']['knowledge_list'] ?? [];
-            _loadingStates[category] = false;
-          });
-        } else {
-          setState(() {
-            _errorStates[category] = '获取知识数据失败';
-            _loadingStates[category] = false;
-          });
-        }
-      } else {
-        setState(() {
-          _errorStates[category] = '网络请求失败';
-          _loadingStates[category] = false;
-        });
-      }
+      final String response = await rootBundle.loadString('assets/config/book.json');
+      final List<dynamic> data = await json.decode(response);
+      setState(() {
+        _books = data.cast<Map<String, dynamic>>();
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
-        _errorStates[category] = '请求异常: $e';
-        _loadingStates[category] = false;
+        _errorMessage = '加载书籍数据失败: $e';
+        _isLoading = false;
       });
     }
   }
@@ -93,31 +52,21 @@ class _KnowledgePageState extends State<KnowledgePage>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: NestedScrollView(
-        headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
-          return <Widget>[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    _buildFunctionBlocks(),
-                    const SizedBox(height: 20),
-                    _buildTabBar(),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  _buildFunctionBlocks(),
+                  const SizedBox(height: 20),
+                ],
               ),
             ),
-          ];
-        },
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildListContent('new_thought'),
-            _buildListContent('theory'),
-          ],
-        ),
+          ),
+          _buildBookGrid(),
+        ],
       ),
     );
   }
@@ -165,7 +114,7 @@ class _KnowledgePageState extends State<KnowledgePage>
             ),
           ),
           const SizedBox(height: 12),
-          // 第二行：最近学习（全宽）
+          // 第二行：最近学习和党史题库
           Expanded(
             child: Row(
               children: [
@@ -178,6 +127,21 @@ class _KnowledgePageState extends State<KnowledgePage>
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) => const RecentLearningPage()),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildFunctionCard(
+                    title: '党史题库',
+                    icon: Icons.menu_book,
+                    color: Colors.red[600]!,
+                    onTap: () {
+                      // 党史题库功能暂时跳转到每日一答页面
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const DailyQuestionPage()),
                       );
                     },
                   ),
@@ -222,115 +186,150 @@ class _KnowledgePageState extends State<KnowledgePage>
     );
   }
 
-  // TabBar
-  Widget _buildTabBar() {
+  // 书籍网格
+  Widget _buildBookGrid() {
+    if (_isLoading) {
+      return const SliverFillRemaining(
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadBooksData,
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_books.isEmpty) {
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
+              SizedBox(height: 16),
+              Text(
+                '暂无书籍内容',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 0.7,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => _buildBookCard(_books[index]),
+          childCount: _books.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookCard(Map<String, dynamic> book) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        indicator: BoxDecoration(
-          color: Colors.red[600],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        labelColor: Colors.white,
-        unselectedLabelColor: Colors.grey[600],
-        labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-        dividerColor: Colors.transparent,
-        tabs: const [
-          Tab(text: '新思想'),
-          Tab(text: '知识理论'),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
         ],
-      ),
-    );
-  }
-
-  // 列表内容
-  Widget _buildListContent(String category) {
-    if (_loadingStates[category]!) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
-
-    if (_errorStates[category]!.isNotEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              _errorStates[category]!,
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => _loadKnowledgeData(category),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final knowledgeList = _knowledgeData[category]!;
-    if (knowledgeList.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              '暂无知识内容',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      itemCount: knowledgeList.length,
-      itemBuilder: (context, index) {
-        final knowledge = knowledgeList[index];
-        return _buildKnowledgeCard(knowledge, category);
-      },
-    );
-  }
-
-  Widget _buildKnowledgeCard(Map<String, dynamic> knowledge, String category) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
         onTap: () {
+          // 处理书籍点击事件，跳转到阅读页面
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => KnowledgeDetailPage(knowledge: knowledge),
+              builder: (context) => BookReaderPage(
+                book: book,
+                // 创建一个Article对象来支持问AI功能
+                article: Article(
+                  id: book['id'].toString(),
+                  title: book['title'],
+                  source: '书籍',
+                  publishTime: DateTime.now().toIso8601String(),
+                  category: 'book',
+                  wordCount: 0,
+                  originalUrl: '',
+                  metaInfo: '书籍内容',
+                  content: '书籍内容来自：${book['file']}',
+                  collectTime: DateTime.now().toIso8601String(),
+                ),
+              ),
             ),
           );
         },
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            children: [
-              Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 书籍封面
+            Expanded(
+              flex: 3,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                child: Image.asset(
+                  book['cover'],
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Center(
+                        child: Icon(
+                          Icons.book,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            // 书籍信息
+            Expanded(
+              flex: 1,
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      knowledge['title'] ?? '无标题',
+                      book['title'],
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -339,24 +338,11 @@ class _KnowledgePageState extends State<KnowledgePage>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      knowledge['source'] ?? '未知来源',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: Colors.grey[400],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

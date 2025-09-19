@@ -58,13 +58,16 @@ dependencies:
   
   # 处理超出边界组件的点击事件
   defer_pointer: ^0.0.2
-  
+
   # 图片缓存
   cached_network_image: ^3.3.1
   flutter_cache_manager: ^3.3.1
 
   # webiew
   webview_flutter: ^4.13.0
+
+  # URL启动器
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:
@@ -94,6 +97,7 @@ flutter:
     - assets/config/
     - assets/images/
     - assets/htmls/
+    - assets/book/
     - lib/config/app_config.json
 
   # An image asset can refer to one or more resolution-specific "variants", see

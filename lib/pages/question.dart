@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:legacy_pi/services/global_state.dart';
+import 'package:legacy_pi/models/user.dart';
+import 'package:legacy_pi/database/database_helper.dart';
+import 'package:legacy_pi/models/user_score.dart';
 
 class DailyQuizPage extends StatefulWidget {
   const DailyQuizPage({super.key,required this.title});
@@ -76,10 +81,110 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
   int correctCount = 0;
   int timeUsed = 0;
 
+  // 用户相关
+  User? _currentUser;
+  String? _userAvatarPath;
+  static const String _opponentName = '努力的大明'; // 对手昵称
+  static const String _opponentAvatar = 'assets/images/avatar1.png'; // 对手头像
+  static const int _opponentCorrectCount = 3; // 对手答对题数
+
   @override
   void initState() {
     super.initState();
+    _initializeUserAndAvatar();
     startTimer();
+  }
+
+  // 初始化用户和头像
+  Future<void> _initializeUserAndAvatar() async {
+    try {
+      // 从全局状态获取用户
+      final globalState = GlobalState();
+      _currentUser = globalState.currentUser;
+
+      // 如果全局状态没有用户数据，从SQLite数据库读取
+      if (_currentUser == null) {
+        await _loadUserFromDatabase();
+      }
+
+      // 加载用户头像
+      await _loadUserAvatar();
+    } catch (e) {
+      debugPrint('初始化用户和头像失败: $e');
+    }
+  }
+
+  // 从SQLite数据库读取用户数据
+  Future<void> _loadUserFromDatabase() async {
+    try {
+      final dbHelper = DatabaseHelper();
+      // 获取数据库中的第一个用户作为当前用户
+      final List<Map<String, dynamic>> users = await dbHelper.database.then((db) {
+        return db.query('users', limit: 1);
+      });
+
+      if (users.isNotEmpty) {
+        final userData = users.first;
+        setState(() {
+          _currentUser = User(
+            id: userData['id'],
+            username: userData['username'] ?? userData['nickname'] ?? '用户',
+            email: userData['email'] ?? 'user@example.com',
+            avatarPath: userData['avatar_path'],
+            nickname: userData['nickname'] ?? userData['username'] ?? '用户',
+            createdAt: userData['created_at'] != null
+                ? DateTime.parse(userData['created_at'])
+                : DateTime.now(),
+            updatedAt: userData['updated_at'] != null
+                ? DateTime.parse(userData['updated_at'])
+                : DateTime.now(),
+          );
+        });
+        debugPrint('从数据库加载用户数据: ${_currentUser?.username}');
+      } else {
+        // 如果数据库中没有用户数据，使用默认用户
+        setState(() {
+          _currentUser = User(
+            id: 1,
+            username: '当前用户',
+            email: 'user@example.com',
+            avatarPath: null,
+            nickname: '当前用户',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+        });
+        debugPrint('数据库中没有用户数据，使用默认用户');
+      }
+    } catch (e) {
+      debugPrint('从数据库加载用户数据失败: $e');
+      // 发生错误时使用默认用户
+      setState(() {
+        _currentUser = User(
+          id: 1,
+          username: '当前用户',
+          email: 'user@example.com',
+          avatarPath: null,
+          nickname: '当前用户',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+      });
+    }
+  }
+
+  // 加载用户头像
+  Future<void> _loadUserAvatar() async {
+    try {
+      if (_currentUser != null && _currentUser!.avatarPath != null) {
+        setState(() {
+          _userAvatarPath = _currentUser!.avatarPath;
+        });
+        debugPrint('从数据库加载用户头像: $_userAvatarPath');
+      }
+    } catch (e) {
+      debugPrint('加载用户头像失败: $e');
+    }
   }
 
   void startTimer() {
@@ -101,16 +206,6 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
       setState(() {
         currentQ++;
       });
-    } else {
-      submitAnswer();
-    }
-  }
-
-  void prevQuestion() {
-    if (currentQ > 0) {
-      setState(() {
-        currentQ--;
-      });
     }
   }
 
@@ -119,8 +214,11 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
       userAnswers[currentQ] = index;
     });
 
-    // 自动跳转下一题
-    if (currentQ < questions.length - 1) {
+    // 如果是最后一题，直接提交答案
+    if (currentQ == questions.length - 1) {
+      Future.delayed(const Duration(milliseconds: 500), submitAnswer);
+    } else {
+      // 否则自动跳转下一题
       Future.delayed(const Duration(milliseconds: 500), nextQuestion);
     }
   }
@@ -134,6 +232,10 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
       }
     }
     timeUsed = 180 - remainingTime;
+
+    // 保存积分到数据库
+    _saveScoreToDatabase();
+
     setState(() {
       showResult = true;
     });
@@ -150,6 +252,30 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
       timeUsed = 0;
     });
     startTimer();
+  }
+
+  // 保存积分到数据库
+  Future<void> _saveScoreToDatabase() async {
+    try {
+      if (_currentUser == null) return;
+
+      final dbHelper = DatabaseHelper();
+      final scoreAmount = correctCount * 10; // 每题10分
+
+      // 创建积分记录
+      final userScore = UserScore(
+        userId: _currentUser!.id!,
+        score: scoreAmount,
+        description: 'PK答题获得积分 - 答对$correctCount题',
+        earnedAt: DateTime.now(),
+      );
+
+      // 保存到数据库
+      await dbHelper.insertUserScore(userScore);
+      debugPrint('积分已保存到数据库: 用户${_currentUser!.id} 获得$scoreAmount分');
+    } catch (e) {
+      debugPrint('保存积分到数据库失败: $e');
+    }
   }
 
   String formatTime(int seconds) {
@@ -180,8 +306,6 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
             ),
             // 进度条
             _buildProgressBar(),
-            // 控制栏
-            if (!showResult) _buildControlBar(),
           ],
         ),
       ),
@@ -311,7 +435,7 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
   }
 
   Widget _buildResultArea() {
-    final accuracy = (correctCount / questions.length * 100).round();
+    final bool isWinner = correctCount > _opponentCorrectCount;
 
     return SingleChildScrollView(
       child: Padding(
@@ -333,119 +457,201 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
                   ),
                 ),
                 child: const Text(
-                  '答题统计',
+                  'PK结果',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
+              // 用户对战信息
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    // 用户信息
+                    Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 35,
+                          backgroundColor: Colors.white.withValues(alpha: 0.8),
+                          child: CircleAvatar(
+                            radius: 30,
+                            backgroundColor: Colors.grey[300],
+                            child: _userAvatarPath != null
+                                ? ClipOval(
+                                    child: Image.file(
+                                      File(_userAvatarPath!),
+                                      width: 60,
+                                      height: 60,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Icon(
+                                          Icons.person,
+                                          size: 30,
+                                          color: Colors.grey[600],
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.person,
+                                    size: 30,
+                                    color: Colors.grey[600],
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _currentUser?.nickname ?? _currentUser?.username ?? '我',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue),
+                          ),
+                          child: Text(
+                            '答对 $correctCount 题',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    // VS
+                    Column(
+                      children: [
+                        const Text(
+                          'VS',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Icon(
+                          isWinner ? Icons.emoji_events : Icons.sentiment_neutral,
+                          color: isWinner ? Colors.amber : Colors.grey,
+                          size: 24,
+                        ),
+                      ],
+                    ),
+                    // 对手信息
+                    Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 35,
+                          backgroundColor: Colors.white.withValues(alpha: 0.8),
+                          child: CircleAvatar(
+                            radius: 30,
+                            backgroundImage: AssetImage(_opponentAvatar),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _opponentName,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red),
+                          ),
+                          child: Text(
+                            '答对 $_opponentCorrectCount 题',
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.all(28),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        Column(
-                          children: [
-                            Text(
-                              '$accuracy%',
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            const Text(
-                              '正确率',
-                              style: TextStyle(
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          children: [
-                            Text(
-                              formatTime(timeUsed),
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            const Text(
-                              '用时',
-                              style: TextStyle(
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
+                    // 显示积分情况
                     Container(
-                      height: 10,
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: FractionallySizedBox(
-                        widthFactor: accuracy / 100,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blue,
-                            borderRadius: BorderRadius.circular(5),
-                          ),
+                        color: Colors.amber[50],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.amber,
+                          width: 2,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Column(
+                            children: [
+                              Text(
+                                '+${correctCount * 10}',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[700],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '我的积分',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.green[50],
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.green),
+                          Column(
+                            children: [
+                              Text(
+                                '+${_opponentCorrectCount * 10}',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red[700],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '对手积分',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
-                          child: Text(
-                            '正确 $correctCount',
-                            style: const TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red[50],
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.red),
-                          ),
-                          child: Text(
-                            '错误 ${questions.length - correctCount}',
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 20),
                     // 新增返回按钮
@@ -459,7 +665,7 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text('重新开始', style: TextStyle(fontSize: 16)),
+                      child: const Text('再来一局', style: TextStyle(fontSize: 16)),
                     ),
                   ],
                 ),
@@ -492,46 +698,4 @@ class _DailyQuizPageState extends State<DailyQuizPage> {
     );
   }
 
-  Widget _buildControlBar() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Colors.grey[300]!, width: 1),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          OutlinedButton(
-            onPressed: prevQuestion,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.grey[600],
-              side: BorderSide(color: Colors.grey[300]!),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text('上一题'),
-          ),
-          ElevatedButton(
-            onPressed: userAnswers[currentQ] != null ? nextQuestion : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text(
-              currentQ == questions.length - 1 ? '提交答案' : '下一题',
-            ),
-          ),
-        ],
-      ),
-    );
   }
-}

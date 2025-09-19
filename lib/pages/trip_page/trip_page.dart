@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart';
@@ -18,16 +19,17 @@ class _TripPageState extends State<TripPage> {
   // 轮播图控制器
   final PageController _pageController = PageController();
   int _currentPage = 0;
+  Timer? _timer;
 
   // 攻略数据
   List<Map<String, dynamic>> strategies = [];
 
   // 轮播图数据
   final List<String> carouselImages = [
-    'https://img.zcool.cn/community/01640b5d32a7e9a8012187f4471cf4.jpg',
-    'https://img.zcool.cn/community/01d88c5d32a7eaa8012187f416cf60.jpg',
-    'https://img.zcool.cn/community/0199855d32a7eaa8012187f474c644.jpg',
-    'https://img.zcool.cn/community/015b4c5d32a7e9a8012187f440d646.jpg',
+    'https://img2.baidu.com/it/u=2971591211,3068420080&fm=253&fmt=auto&app=120&f=PNG?w=524&h=277',
+    'https://img1.baidu.com/it/u=1208406069,500658680&fm=253&fmt=auto&app=138&f=JPEG?w=660&h=440',
+    'https://img2.baidu.com/it/u=2355523559,814322641&fm=253&fmt=auto&app=120&f=JPEG?w=660&h=360',
+    'https://img2.baidu.com/it/u=4263106303,3473391965&fm=253&fmt=auto&app=120&f=JPEG?w=1080&h=713',
   ];
 
   // 模拟数据
@@ -69,6 +71,7 @@ class _TripPageState extends State<TripPage> {
       'location': '上海市黄浦区兴业路76号',
       'rating': 4.8,
       'visitors': 12500,
+      'url': 'https://www.zgyd1921.com.cn'
     },
     {
       'image': 'https://www.zunyihy.cn/n342/20220411/880/material/2f7caa1a-4c05-43c3-8482-461108fd9a40.jpg',
@@ -76,6 +79,7 @@ class _TripPageState extends State<TripPage> {
       'location': '贵州省遵义市红花岗区子尹路96号',
       'rating': 4.9,
       'visitors': 8900,
+      'url': 'https://www.zunyihy.cn'
     },
     {
       'image': 'http://www.luxunmuseum.com.cn/data/attached/4b5ce2fe28308fd9/image/20250415/17447007818454.jpg',
@@ -83,6 +87,7 @@ class _TripPageState extends State<TripPage> {
       'location': '上海市虹口区甜爱路200号',
       'rating': 4.7,
       'visitors': 6700,
+      'url': 'https://www.luxunmuseum.com.cn'
     },
     {
       'image': 'https://picsum.photos/280/140?random=3',
@@ -90,6 +95,7 @@ class _TripPageState extends State<TripPage> {
       'location': '江西省井冈山市茨坪镇',
       'rating': 4.8,
       'visitors': 10200,
+      'url': 'https://www.jgsngm.com.cn'
     },
   ];
 
@@ -98,6 +104,7 @@ class _TripPageState extends State<TripPage> {
   void initState() {
     super.initState();
     _loadStrategiesData();
+    _startAutoScroll();
   }
 
   // 加载攻略数据
@@ -117,45 +124,72 @@ class _TripPageState extends State<TripPage> {
             'id': 1,
             'title': '鲁迅纪念馆参观攻略',
             'description': '这是一篇详细的鲁迅纪念馆参观攻略，包含了开放时间、门票信息、交通指南、主要展品介绍、参观路线建议、注意事项等内容，帮助您更好地规划参观行程。',
-            'image': 'http://www.luxunmuseum.com.cn/data/attached/4b5ce2fe28308fd9/image/20250415/17447007818454.jpg'
+            'image': 'http://www.luxunmuseum.com.cn/data/attached/4b5ce2fe28308fd9/image/20250415/17447007818454.jpg',
+            'url': 'https://www.luxunmuseum.com.cn'
           },
           {
             'id': 2,
             'title': '遵义会议会址旅游攻略',
             'description': '遵义会议会址旅游攻略，详细介绍红色旅游景点，包括历史背景、参观路线、周边景点、住宿推荐、美食介绍、交通方式，让您的红色之旅更加充实有意义。',
-            'image': 'https://www.zunyihy.cn/n342/20220411/880/material/2f7caa1a-4c05-43c3-8482-461108fd9a40.jpg'
+            'image': 'https://www.zunyihy.cn/n342/20220411/880/material/2f7caa1a-4c05-43c3-8482-461108fd9a40.jpg',
+            'url': 'https://www.zunyihy.cn'
           },
           {
             'id': 3,
             'title': '井冈山革命根据地深度游',
             'description': '井冈山革命根据地深度旅游攻略，包含主要景点介绍、最佳游览季节、登山路线建议、红色文化体验、住宿餐饮推荐、交通指南，带您重走红军路。',
-            'image': 'https://picsum.photos/400/200?random=1'
+            'image': 'https://picsum.photos/400/200?random=1',
+            'url': 'https://jgs.gov.cn'
           },
           {
             'id': 4,
             'title': '延安革命圣地游览指南',
             'description': '延安革命圣地完整游览指南，涵盖枣园、杨家岭、王家坪等主要景点，历史文化介绍，游览路线规划，当地特色美食，住宿建议和交通信息。',
-            'image': 'https://picsum.photos/400/200?random=2'
+            'image': 'https://picsum.photos/400/200?random=2',
+            'url': 'https://www.yanannormal.com'
           },
           {
             'id': 5,
             'title': '西柏坡红色教育之旅',
             'description': '西柏坡红色教育旅游攻略，包括景点介绍、历史意义、参观路线、教育意义、周边景点推荐、交通住宿信息，是进行爱国主义教育的理想目的地。',
-            'image': 'https://picsum.photos/400/200?random=3'
+            'image': 'https://picsum.photos/400/200?random=3',
+            'url': 'https://www.xibaipo.com'
           },
           {
             'id': 6,
             'title': '中共一大会址参观指南',
             'description': '中共一大会址详细参观指南，包含历史背景介绍、参观须知、展品特色、预约方式、周边红色景点、交通路线、参观时长建议等实用信息。',
-            'image': 'http://pic.people.com.cn/mediafile/pic/BIG/20230519/5/12397810148944316541.jpg'
+            'image': 'http://pic.people.com.cn/mediafile/pic/BIG/20230519/5/12397810148944316541.jpg',
+            'url': 'https://www.zgshyc.com'
           }
         ];
       });
     }
   }
 
+  // 开始自动滚动
+  void _startAutoScroll() {
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (_pageController.hasClients) {
+        int nextPage = (_currentPage + 1) % carouselImages.length;
+        _pageController.animateToPage(
+          nextPage,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+  // 停止自动滚动
+  void _stopAutoScroll() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
   @override
   void dispose() {
+    _stopAutoScroll();
     _pageController.dispose();
     super.dispose();
   }
@@ -172,14 +206,21 @@ class _TripPageState extends State<TripPage> {
               child: Column(
                 children: [
                   Expanded(
-                    child: PageView.builder(
-                      controller: _pageController,
-                      itemCount: carouselImages.length,
-                      onPageChanged: (index) {
-                        setState(() {
-                          _currentPage = index;
-                        });
+                    child: GestureDetector(
+                      onPanDown: (_) {
+                        _stopAutoScroll();
                       },
+                      onPanEnd: (_) {
+                        _startAutoScroll();
+                      },
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: carouselImages.length,
+                        onPageChanged: (index) {
+                          setState(() {
+                            _currentPage = index;
+                          });
+                        },
                       itemBuilder: (context, index) {
                         return Image.network(
                           carouselImages[index],
@@ -200,6 +241,7 @@ class _TripPageState extends State<TripPage> {
                           },
                         );
                       },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
