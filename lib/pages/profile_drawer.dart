@@ -150,24 +150,8 @@ class _ProfileDrawerState extends State<ProfileDrawer>
 
       // 重新加载用户数据
       await _loadUserData();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('成功领取 ${task.points} 积分！'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('领取失败: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // 静默处理错误，不显示提示消息
     }
   }
 
@@ -771,63 +755,10 @@ class _ProfileDrawerState extends State<ProfileDrawer>
 
           const SizedBox(height: 12),
 
-          // 任务列表卡片
-          Card(
-            elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.task_alt,
-                          color: Colors.blue,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          '每日任务',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // 任务列表
-                  ..._tasks.map((task) => _buildTaskItem(task)),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
           // 成就卡片
           GestureDetector(
             onTap: () async {
               await _loadUserData();
-              if (mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('数据已刷新')));
-              }
             },
             child: Card(
               elevation: 0,
@@ -874,6 +805,54 @@ class _ProfileDrawerState extends State<ProfileDrawer>
                     const Icon(Icons.refresh, color: Colors.grey, size: 16),
                   ],
                 ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // 任务列表卡片
+          Card(
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.task_alt,
+                          color: Colors.blue,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          '每日任务',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // 任务列表
+                  ..._tasks.map((task) => _buildTaskItem(task)),
+                ],
               ),
             ),
           ),

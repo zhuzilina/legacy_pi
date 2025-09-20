@@ -17,7 +17,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with RouteAware {
+class _HomePageState extends State<HomePage> with RouteAware, WidgetsBindingObserver {
   int _currentIndex = 1; // 默认显示学文化页面（中间）
   final UnifiedCacheService _cacheService = UnifiedCacheService();
 
@@ -41,7 +41,8 @@ class _HomePageState extends State<HomePage> with RouteAware {
   @override
   void initState() {
     super.initState();
-    
+    WidgetsBinding.instance.addObserver(this);
+
     // 在 initState 中只创建一次页面实例
     _pages = [
       JourneyPage(
@@ -61,7 +62,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
 
     // 恢复底部TabBar状态
     _restoreBottomTabState();
-    
+
     // 延迟初始化悬浮按钮，确保在 build 完成后执行
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeFloatingButtons();
@@ -79,6 +80,8 @@ class _HomePageState extends State<HomePage> with RouteAware {
   void dispose() {
     // 取消订阅路由观察者
     routeObserver.unsubscribe(this);
+    // 取消订阅应用生命周期观察者
+    WidgetsBinding.instance.removeObserver(this);
     // 销毁悬浮按钮管理器
     _floatingButtonsManager?.dispose();
     super.dispose();
@@ -102,6 +105,20 @@ class _HomePageState extends State<HomePage> with RouteAware {
       _isFabVisible = true;
     });
     _updateFloatingButtons();
+  }
+
+  /// 应用生命周期状态变化时调用
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // 应用重新获得焦点时，检查当前页面的状态
+      print('HomePage: 应用重新获得焦点，当前页面索引: $_currentIndex');
+      if (_currentIndex == 0) {
+        // 如果当前是征途页面，触发积分检查
+        print('HomePage: 触发征途页面积分检查');
+        _checkJourneyPageState();
+      }
+    }
   }
 
   // 保存当前页面状态 - 这个方法现在可以移除了，因为IndexedStack会自动处理
@@ -211,12 +228,12 @@ class _HomePageState extends State<HomePage> with RouteAware {
   }
 
   // 检查JourneyPage状态的方法
-  void _checkJourneyPageState() {
+  Future<void> _checkJourneyPageState() async {
     if (_currentIndex == 0) {
       // 当前是Journey页面，触发其状态检查
       print('HomePage: 触发Journey页面状态检查');
       // 直接调用JourneyPage的方法
-      (_pages[0] as JourneyPage).checkAndUpdateGlobalState();
+      await (_pages[0] as JourneyPage).checkAndUpdateGlobalState();
     }
   }
 
@@ -237,7 +254,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) {
+        onTap: (index) async {
           // 不再需要手动调用 _saveCurrentPageState()
           // _saveCurrentPageState();
 
@@ -250,8 +267,13 @@ class _HomePageState extends State<HomePage> with RouteAware {
 
           // 如果切换到Journey页面，触发状态检查
           if (index == 0) {
-            print('HomePage: 切换到Journey页面，触发状态检查');
-            _checkJourneyPageState();
+            print('HomePage: 切换到Journey页面，延迟触发状态检查');
+            // 延迟调用确保页面完全显示
+            Future.delayed(const Duration(milliseconds: 100), () async {
+              if (mounted) {
+                await _checkJourneyPageState();
+              }
+            });
           }
 
           // 保存底部TabBar状态

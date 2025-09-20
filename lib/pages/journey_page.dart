@@ -21,17 +21,46 @@ class JourneyPage extends StatefulWidget {
 
   // 公共方法：检查并更新全局状态
   Future<void> checkAndUpdateGlobalState() async {
-    // 这个方法实际逻辑在State中，通过其他方式调用
     print('JourneyPage: checkAndUpdateGlobalState被调用');
+    // 通过GlobalKey调用实际的处理逻辑
+    if (_JourneyPageState.currentKey != null) {
+      _JourneyPageState.currentKey?.currentState?.checkAndUpdateGlobalState();
+    }
   }
 
   @override
   State<JourneyPage> createState() => _JourneyPageState();
 }
 
-class _JourneyPageState extends State<JourneyPage> {
+class _JourneyPageState extends State<JourneyPage> with WidgetsBindingObserver {
   final GlobalKey<_ZoomableBackgroundWidgetState> _journeyKey =
       GlobalKey<_ZoomableBackgroundWidgetState>();
+
+  // 静态变量用于从JourneyPage类访问
+  static GlobalKey<_ZoomableBackgroundWidgetState>? currentKey;
+
+  @override
+  void initState() {
+    super.initState();
+    currentKey = _journeyKey;
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    currentKey = null;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // 应用重新获得焦点时，检查积分更新
+      print('JourneyPage: 应用重新获得焦点，检查积分更新');
+      _journeyKey.currentState?.checkAndUpdateGlobalState();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2117,6 +2146,8 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
         print('页面还在初始化阶段，跳过积分更新检查');
         return;
       }
+
+      print('页面已初始化，开始检查积分更新...');
 
       if (_currentUser != null) {
         // 从数据库读取最新积分值
