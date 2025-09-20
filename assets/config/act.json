@@ -1,0 +1,10 @@
+[
+    {
+        "cover":"assets/images/trip/act/image1.png",
+        "content":"assets/book/content1.txt"
+    },
+    {
+        "cover":"assets/images/trip/act/image2.png",
+        "content":"assets/book/content2.txt"
+    }
+]

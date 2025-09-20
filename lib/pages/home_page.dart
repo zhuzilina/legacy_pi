@@ -25,7 +25,7 @@ class _HomePageState extends State<HomePage> with RouteAware {
   // 将原来的 getter 修改为 final List<Widget>
   late final List<Widget> _pages;
 
-  final List<String> _titles = ['新旅途', '学文化', '学知识', '旅游'];
+  final List<String> _titles = ['征途', '首页', '知识', '旅游'];
 
   // 为文化页面创建 GlobalKey，以便调用其悬浮按钮方法
   final GlobalKey<CulturePageState> _culturePageKey = GlobalKey<CulturePageState>();
@@ -263,9 +263,9 @@ class _HomePageState extends State<HomePage> with RouteAware {
         unselectedItemColor: Colors.grey[600],
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: '新旅途'),
-          BottomNavigationBarItem(icon: Icon(Icons.flag), label: '学文化'),
-          BottomNavigationBarItem(icon: Icon(Icons.school), label: '学知识'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: '征途'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: '首页'),
+          BottomNavigationBarItem(icon: Icon(Icons.school), label: '知识'),
           BottomNavigationBarItem(icon: Icon(Icons.travel_explore), label: '旅游'),
         ],
       ),

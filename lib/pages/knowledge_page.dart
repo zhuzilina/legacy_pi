@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'daily_question_page.dart';
 import 'recent_learning_page.dart';
 import 'book_reader_page.dart';
+import 'party_history_quiz_page.dart';
 import '../models/article.dart';
 
 class KnowledgePage extends StatefulWidget {
@@ -138,10 +139,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     icon: Icons.menu_book,
                     color: Colors.red[600]!,
                     onTap: () {
-                      // 党史题库功能暂时跳转到每日一答页面
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const DailyQuestionPage()),
+                        MaterialPageRoute(builder: (context) => const PartyHistoryQuizPage()),
                       );
                     },
                   ),
@@ -237,20 +237,37 @@ class _KnowledgePageState extends State<KnowledgePage> {
       );
     }
 
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 0.7,
+    return SliverList(
+      delegate: SliverChildListDelegate([
+        // 书籍网格标题
+        const Padding(
+          padding: EdgeInsets.only(left: 16.0, right: 16.0, bottom: 16.0),
+          child: Text(
+            '推荐书籍',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black,
+            ),
+          ),
         ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) => _buildBookCard(_books[index]),
-          childCount: _books.length,
+        // 书籍网格
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: 0.7,
+            ),
+            itemCount: _books.length,
+            itemBuilder: (context, index) => _buildBookCard(_books[index]),
+          ),
         ),
-      ),
+      ]),
     );
   }
 

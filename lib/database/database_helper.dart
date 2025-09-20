@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import '../models/user.dart';
 import '../models/user_score.dart';
 import '../models/achievement.dart';
+import '../models/ai_explanation.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -25,7 +26,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -89,6 +90,56 @@ class DatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_achievements_earned_at ON achievements (earned_at)
     ''');
+
+    // 创建AI解答表
+    await db.execute('''
+      CREATE TABLE ai_explanations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quiz_record_id INTEGER NOT NULL,
+        explanation TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER
+      )
+    ''');
+
+    // 创建AI解答表索引
+    await db.execute('''
+      CREATE INDEX idx_ai_explanations_quiz_record_id ON ai_explanations (quiz_record_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_ai_explanations_created_at ON ai_explanations (created_at)
+    ''');
+
+    // 创建答题记录表
+    await db.execute('''
+      CREATE TABLE quiz_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question_id INTEGER NOT NULL,
+        question_text TEXT NOT NULL,
+        question_type TEXT NOT NULL,
+        difficulty TEXT NOT NULL,
+        user_answer TEXT NOT NULL,
+        correct_answer TEXT NOT NULL,
+        is_correct INTEGER NOT NULL DEFAULT 0,
+        score INTEGER NOT NULL DEFAULT 0,
+        answered_at INTEGER NOT NULL,
+        time_spent INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    // 创建答题记录表索引
+    await db.execute('''
+      CREATE INDEX idx_quiz_records_question_id ON quiz_records (question_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_quiz_records_answered_at ON quiz_records (answered_at)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_quiz_records_is_correct ON quiz_records (is_correct)
+    ''');
   }
 
   // 数据库升级
@@ -124,6 +175,60 @@ class DatabaseHelper {
 
       await db.execute('''
         CREATE INDEX idx_achievements_earned_at ON achievements (earned_at)
+      ''');
+    }
+
+    if (oldVersion < 3) {
+      // 创建AI解答表
+      await db.execute('''
+        CREATE TABLE ai_explanations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          quiz_record_id INTEGER NOT NULL,
+          explanation TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER
+        )
+      ''');
+
+      // 创建AI解答表索引
+      await db.execute('''
+        CREATE INDEX idx_ai_explanations_quiz_record_id ON ai_explanations (quiz_record_id)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_ai_explanations_created_at ON ai_explanations (created_at)
+      ''');
+    }
+
+    if (oldVersion < 4) {
+      // 创建答题记录表
+      await db.execute('''
+        CREATE TABLE quiz_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          question_id INTEGER NOT NULL,
+          question_text TEXT NOT NULL,
+          question_type TEXT NOT NULL,
+          difficulty TEXT NOT NULL,
+          user_answer TEXT NOT NULL,
+          correct_answer TEXT NOT NULL,
+          is_correct INTEGER NOT NULL DEFAULT 0,
+          score INTEGER NOT NULL DEFAULT 0,
+          answered_at INTEGER NOT NULL,
+          time_spent INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+
+      // 创建答题记录表索引
+      await db.execute('''
+        CREATE INDEX idx_quiz_records_question_id ON quiz_records (question_id)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_quiz_records_answered_at ON quiz_records (answered_at)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_quiz_records_is_correct ON quiz_records (is_correct)
       ''');
     }
   }
@@ -359,5 +464,263 @@ class DatabaseHelper {
         ).toMap(),
       );
     }
+  }
+
+  // AI解答相关操作
+  Future<int> insertAIExplanation(AIExplanation explanation) async {
+    final db = await database;
+    return await db.insert('ai_explanations', explanation.toMap());
+  }
+
+  Future<AIExplanation?> getAIExplanationByQuizRecordId(int quizRecordId) async {
+    final db = await database;
+    final maps = await db.query(
+      'ai_explanations',
+      where: 'quiz_record_id = ?',
+      whereArgs: [quizRecordId],
+      orderBy: 'created_at DESC',
+      limit: 1,
+    );
+
+    if (maps.isNotEmpty) {
+      return AIExplanation.fromMap(maps.first);
+    }
+    return null;
+  }
+
+  Future<List<AIExplanation>> getAIExplanationsByQuizRecordId(int quizRecordId) async {
+    final db = await database;
+    final maps = await db.query(
+      'ai_explanations',
+      where: 'quiz_record_id = ?',
+      whereArgs: [quizRecordId],
+      orderBy: 'created_at DESC',
+    );
+    return maps.map((map) => AIExplanation.fromMap(map)).toList();
+  }
+
+  Future<int> updateAIExplanation(AIExplanation explanation) async {
+    final db = await database;
+    return await db.update(
+      'ai_explanations',
+      explanation.toMap(),
+      where: 'id = ?',
+      whereArgs: [explanation.id],
+    );
+  }
+
+  Future<int> deleteAIExplanation(int id) async {
+    final db = await database;
+    return await db.delete('ai_explanations', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteAIExplanationByQuizRecordId(int quizRecordId) async {
+    final db = await database;
+    return await db.delete(
+      'ai_explanations',
+      where: 'quiz_record_id = ?',
+      whereArgs: [quizRecordId],
+    );
+  }
+
+  Future<List<AIExplanation>> getAllAIExplanations() async {
+    final db = await database;
+    final maps = await db.query(
+      'ai_explanations',
+      orderBy: 'created_at DESC',
+    );
+    return maps.map((map) => AIExplanation.fromMap(map)).toList();
+  }
+
+  Future<List<AIExplanation>> getRecentAIExplanations({int limit = 50}) async {
+    final db = await database;
+    final maps = await db.query(
+      'ai_explanations',
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return maps.map((map) => AIExplanation.fromMap(map)).toList();
+  }
+
+  Future<List<AIExplanation>> getAIExplanationsByDateRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final db = await database;
+    final maps = await db.query(
+      'ai_explanations',
+      where: 'created_at BETWEEN ? AND ?',
+      whereArgs: [
+        startDate.millisecondsSinceEpoch,
+        endDate.millisecondsSinceEpoch,
+      ],
+      orderBy: 'created_at DESC',
+    );
+    return maps.map((map) => AIExplanation.fromMap(map)).toList();
+  }
+
+  Future<int> getAIExplanationCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM ai_explanations');
+    if (result.isNotEmpty && result.first['count'] != null) {
+      return result.first['count'] as int;
+    }
+    return 0;
+  }
+
+  // 答题记录相关操作
+  Future<int> insertQuizRecord(Map<String, dynamic> record) async {
+    final db = await database;
+    return await db.insert('quiz_records', record);
+  }
+
+  Future<List<Map<String, dynamic>>> getQuizRecords({
+    int? limit,
+    int? offset,
+    String? orderBy,
+    bool? descending,
+  }) async {
+    final db = await database;
+
+    String orderClause = 'answered_at DESC'; // 默认按答题时间倒序
+    if (orderBy != null) {
+      orderClause = '$orderBy ${descending == false ? 'ASC' : 'DESC'}';
+    }
+
+    final maps = await db.query(
+      'quiz_records',
+      orderBy: orderClause,
+      limit: limit,
+      offset: offset,
+    );
+    return maps;
+  }
+
+  Future<Map<String, dynamic>?> getQuizRecordById(int id) async {
+    final db = await database;
+    final maps = await db.query(
+      'quiz_records',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    if (maps.isNotEmpty) {
+      return maps.first;
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getQuizRecordsByQuestionId(int questionId) async {
+    final db = await database;
+    final maps = await db.query(
+      'quiz_records',
+      where: 'question_id = ?',
+      whereArgs: [questionId],
+      orderBy: 'answered_at DESC',
+    );
+    return maps;
+  }
+
+  Future<List<Map<String, dynamic>>> getQuizRecordsByDateRange(
+    DateTime startDate,
+    DateTime endDate, {
+    String? orderBy,
+    bool? descending,
+  }) async {
+    final db = await database;
+
+    String orderClause = 'answered_at DESC';
+    if (orderBy != null) {
+      orderClause = '$orderBy ${descending == false ? 'ASC' : 'DESC'}';
+    }
+
+    final maps = await db.query(
+      'quiz_records',
+      where: 'answered_at BETWEEN ? AND ?',
+      whereArgs: [
+        startDate.millisecondsSinceEpoch,
+        endDate.millisecondsSinceEpoch,
+      ],
+      orderBy: orderClause,
+    );
+    return maps;
+  }
+
+  Future<int> updateQuizRecord(int id, Map<String, dynamic> record) async {
+    final db = await database;
+    return await db.update(
+      'quiz_records',
+      record,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteQuizRecord(int id) async {
+    final db = await database;
+    return await db.delete('quiz_records', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> getQuizRecordCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM quiz_records');
+    if (result.isNotEmpty && result.first['count'] != null) {
+      return result.first['count'] as int;
+    }
+    return 0;
+  }
+
+  Future<Map<String, dynamic>> getQuizStats() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT
+        COUNT(*) as total_questions,
+        SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct_questions,
+        SUM(score) as total_score,
+        SUM(time_spent) as total_time_spent,
+        MAX(answered_at) as last_quiz_date
+      FROM quiz_records
+    ''');
+
+    if (result.isNotEmpty) {
+      final row = result.first;
+      return {
+        'totalQuestions': row['total_questions'] ?? 0,
+        'correctQuestions': row['correct_questions'] ?? 0,
+        'totalScore': row['total_score'] ?? 0,
+        'totalTimeSpent': row['total_time_spent'] ?? 0,
+        'lastQuizDate': row['last_quiz_date'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(row['last_quiz_date'] as int)
+            : DateTime.now(),
+      };
+    }
+
+    return {
+      'totalQuestions': 0,
+      'correctQuestions': 0,
+      'totalScore': 0,
+      'totalTimeSpent': 0,
+      'lastQuizDate': DateTime.now(),
+    };
+  }
+
+  Future<Map<String, int>> getDifficultyStats() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT
+        difficulty,
+        COUNT(*) as count
+      FROM quiz_records
+      GROUP BY difficulty
+      ORDER BY count DESC
+    ''');
+
+    Map<String, int> stats = {};
+    for (var row in result) {
+      stats[row['difficulty'] as String] = row['count'] as int;
+    }
+
+    return stats;
   }
 }

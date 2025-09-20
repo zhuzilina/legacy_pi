@@ -121,6 +121,8 @@ class MdDocsApiService {
         return 'person';
       case '党史':
         return 'party_history';
+      case '景点':
+        return 'scenic';
       default:
         return category;
     }
@@ -133,18 +135,59 @@ class MdDocsApiService {
     return Article.fromMarkdown(documentId, markdownContent);
   }
   
+  /// 批量获取文档内容（并发）
+  Future<List<Article>> getMultipleDocuments(
+    List<String> documentIds, {
+    int? maxCount,
+    int concurrency = 6,
+  }) async {
+    final targetIds = (maxCount != null && maxCount > 0)
+        ? documentIds.take(maxCount).toList()
+        : List<String>.from(documentIds);
+
+    print('正在批量获取 ${targetIds.length} 个文档（并发=$concurrency）...');
+
+    final articles = <Article>[];
+    int index = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final currentIndex = index;
+        if (currentIndex >= targetIds.length) break;
+        index = currentIndex + 1;
+
+        final id = targetIds[currentIndex];
+        final content = await getDocumentContent(id);
+        if (content != null) {
+          final article = convertToArticle(id, content);
+          articles.add(article);
+          print('成功获取文档: ${article.title}');
+        } else {
+          print('获取文档失败: $id');
+        }
+      }
+    }
+
+    // 启动并发工作协程
+    final workers = List.generate(concurrency, (_) => worker());
+    await Future.wait(workers);
+
+    print('批量获取完成，共获得 ${articles.length} 个文档');
+    return articles;
+  }
+
   /// 转换MD文档的图片URL为完整URL
   String convertImageUrl(String imageUrl) {
     // 如果已经是完整URL，直接返回
     if (imageUrl.startsWith('http')) {
       return imageUrl;
     }
-    
+
     // 如果是MD文档的图片路径格式，转换为完整URL
     if (imageUrl.startsWith('/api/md-docs/image/')) {
       return '$_baseUrl$imageUrl';
     }
-    
+
     return imageUrl;
   }
   

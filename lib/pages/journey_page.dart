@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:legacy_pi/pages/ai_preview_page.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:math';
 import 'dart:convert';
 import 'dart:async';
@@ -107,7 +107,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
   Set<int> _activatedButtonIndices = {}; // 记录新激活的按钮索引
 
   // WebView控制器
-  late WebViewController _webViewController;
+  InAppWebViewController? _webViewController;
 
   @override
   void initState() {
@@ -165,11 +165,7 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
       vsync: this,
     );
 
-    // 初始化WebView控制器
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..loadFlutterAsset('assets/htmls/thumbnail.html');
-
+    
     _buttonScaleAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(
         parent: _buttonAnimationController,
@@ -1239,7 +1235,16 @@ class _ZoomableBackgroundWidgetState extends State<ZoomableBackgroundWidget>
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(7),
-                  child: WebViewWidget(controller: _webViewController),
+                  child: InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri('')),
+                  initialSettings: InAppWebViewSettings(
+                    javaScriptEnabled: true,
+                  ),
+                  onWebViewCreated: (controller) {
+                    _webViewController = controller;
+                    controller.loadFile(assetFilePath: 'assets/htmls/thumbnail.html');
+                  },
+                ),
                 ),
               ),
             ),

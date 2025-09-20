@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:legacy_pi/widgets/ai_interpretation_dialog.dart';
 import 'package:legacy_pi/widgets/key_points_dialog.dart';
 import 'package:legacy_pi/widgets/full_content_dialog.dart';
@@ -65,7 +66,16 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
   @override
   void initState() {
     super.initState();
-    
+
+    // 初始化基本变量
+    _categories = ['新闻', '要闻', '思想', '文章']; // 临时默认值，会在didChangeDependencies中更新
+
+    // 初始化TabController
+    _tabController = TabController(length: _categories.length, vsync: this);
+
+    // 添加TabController监听器
+    _tabController.addListener(_onTabChanged);
+
     // 恢复页面状态
     _restorePageState();
   }
@@ -73,20 +83,22 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    
+
     // 获取本地化字符串
     final l10n = AppLocalizations.of(context)!;
     // 内部逻辑使用"新闻"，显示使用本地化的"要闻"，添加思想和文章
-    _categories = ['新闻', l10n.people, '思想', '文章'];
-    
-    // 初始化TabController（如果还没有初始化）
-    try {
-      // 尝试访问 _tabController，如果未初始化会抛出异常
-      _tabController.length;
-    } catch (e) {
-      // 如果未初始化，则创建新的TabController
+    final newCategories = ['新闻', l10n.people, '思想', '文章'];
+
+    // 如果分类列表发生变化，更新相关状态
+    if (!listEquals(_categories, newCategories)) {
+      setState(() {
+        _categories = newCategories;
+      });
+
+      // 重新创建TabController
+      _tabController.dispose();
       _tabController = TabController(length: _categories.length, vsync: this);
-      
+
       // 初始化各分类的状态
       for (final category in _categories) {
         _isLoadingMap[category] = false;
@@ -94,12 +106,13 @@ class CulturePageState extends State<CulturePage> with TickerProviderStateMixin 
         _articlesMap[category] = [];
         _knowledgeMap[category] = [];
       }
-      
+
       // 检查是否需要加载默认分类（新闻）的数据
       // 只有在没有缓存状态时才加载默认数据
       _checkAndLoadDefaultData();
-      
-      // 监听Tab切换
+
+      // 监听Tab切换（如果还没有监听器）
+      _tabController.removeListener(_onTabChanged);
       _tabController.addListener(_onTabChanged);
     }
   }

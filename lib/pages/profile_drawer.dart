@@ -9,6 +9,7 @@ import '../services/chat_record_service.dart';
 import '../models/article.dart';
 import '../pages/chat_page.dart';
 import '../services/journey_state_service.dart';
+import '../pages/reward_page.dart';
 
 class Task {
   final String id;
@@ -727,21 +728,42 @@ class _ProfileDrawerState extends State<ProfileDrawer>
                       ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: () async {
-                      await _loadUserData();
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('数据已刷新')),
-                        );
-                      }
-                    },
-                    icon: const Icon(
-                      Icons.refresh,
-                      color: Colors.grey,
-                      size: 16,
+                  InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const RewardPage(),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.card_giftcard,
+                          color: Colors.red[600],
+                          size: 20,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '兑换',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.red[600],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                ),
                 ],
               ),
             ),

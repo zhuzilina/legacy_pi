@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 // 引入自定义组件
-import 'widget/team_card.dart';
 import 'widget/strategy_card.dart';
 import 'widget/section_title.dart';
+import 'widget/scenic_attraction_card.dart';
+import '../act_detail_page.dart';
 
 class TripPage extends StatefulWidget {
   const TripPage({super.key});
@@ -24,30 +25,11 @@ class _TripPageState extends State<TripPage> {
   // 攻略数据
   List<Map<String, dynamic>> strategies = [];
 
-  // 轮播图数据
-  final List<String> carouselImages = [
-    'https://img2.baidu.com/it/u=2971591211,3068420080&fm=253&fmt=auto&app=120&f=PNG?w=524&h=277',
-    'https://img1.baidu.com/it/u=1208406069,500658680&fm=253&fmt=auto&app=138&f=JPEG?w=660&h=440',
-    'https://img2.baidu.com/it/u=2355523559,814322641&fm=253&fmt=auto&app=120&f=JPEG?w=660&h=360',
-    'https://img2.baidu.com/it/u=4263106303,3473391965&fm=253&fmt=auto&app=120&f=JPEG?w=1080&h=713',
-  ];
+  // 活动数据
+  List<Map<String, dynamic>> _actData = [];
+  bool _isLoadingAct = true;
 
-  // 模拟数据
-  final List<Map<String, dynamic>> attractions = [
-    {
-      'image':
-          'http://pic.people.com.cn/mediafile/pic/BIG/20230519/5/12397810148944316541.jpg',
-      'title': '中共一大会址',
-      'desc': '红色的发源地',
-    },
-    {
-      'image':
-          'https://www.zunyihy.cn/n342/20220411/880/material/2f7caa1a-4c05-43c3-8482-461108fd9a40.jpg',
-      'title': '遵义会议会址',
-      'desc': '生死攸关的伟大转折',
-    },
-  ];
-
+  
   final List<Map<String, dynamic>> teams = [
     {
       'avatar': 'https://picsum.photos/50?random=1',
@@ -63,47 +45,13 @@ class _TripPageState extends State<TripPage> {
     },
   ];
 
-  // 热门景点数据
-  final List<Map<String, dynamic>> popularAttractions = [
-    {
-      'image': 'http://pic.people.com.cn/mediafile/pic/BIG/20230519/5/12397810148944316541.jpg',
-      'name': '中共一大会址',
-      'location': '上海市黄浦区兴业路76号',
-      'rating': 4.8,
-      'visitors': 12500,
-      'url': 'https://www.zgyd1921.com.cn'
-    },
-    {
-      'image': 'https://www.zunyihy.cn/n342/20220411/880/material/2f7caa1a-4c05-43c3-8482-461108fd9a40.jpg',
-      'name': '遵义会议会址',
-      'location': '贵州省遵义市红花岗区子尹路96号',
-      'rating': 4.9,
-      'visitors': 8900,
-      'url': 'https://www.zunyihy.cn'
-    },
-    {
-      'image': 'http://www.luxunmuseum.com.cn/data/attached/4b5ce2fe28308fd9/image/20250415/17447007818454.jpg',
-      'name': '鲁迅纪念馆',
-      'location': '上海市虹口区甜爱路200号',
-      'rating': 4.7,
-      'visitors': 6700,
-      'url': 'https://www.luxunmuseum.com.cn'
-    },
-    {
-      'image': 'https://picsum.photos/280/140?random=3',
-      'name': '井冈山革命博物馆',
-      'location': '江西省井冈山市茨坪镇',
-      'rating': 4.8,
-      'visitors': 10200,
-      'url': 'https://www.jgsngm.com.cn'
-    },
-  ];
-
+  
   
   @override
   void initState() {
     super.initState();
     _loadStrategiesData();
+    _loadActData();
     _startAutoScroll();
   }
 
@@ -167,11 +115,29 @@ class _TripPageState extends State<TripPage> {
     }
   }
 
+  // 加载活动数据
+  Future<void> _loadActData() async {
+    try {
+      final String response = await rootBundle.loadString('assets/config/act.json');
+      final List<dynamic> data = await json.decode(response);
+      setState(() {
+        _actData = data.cast<Map<String, dynamic>>();
+        _isLoadingAct = false;
+      });
+    } catch (e) {
+      debugPrint('加载活动数据失败: $e');
+      setState(() {
+        _isLoadingAct = false;
+      });
+    }
+  }
+
   // 开始自动滚动
   void _startAutoScroll() {
     _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (_pageController.hasClients) {
-        int nextPage = (_currentPage + 1) % carouselImages.length;
+        final itemCount = _actData.isEmpty ? 1 : _actData.length;
+        int nextPage = (_currentPage + 1) % itemCount;
         _pageController.animateToPage(
           nextPage,
           duration: const Duration(milliseconds: 500),
@@ -215,32 +181,79 @@ class _TripPageState extends State<TripPage> {
                       },
                       child: PageView.builder(
                         controller: _pageController,
-                        itemCount: carouselImages.length,
+                        itemCount: _actData.isEmpty ? 1 : _actData.length,
                         onPageChanged: (index) {
                           setState(() {
                             _currentPage = index;
                           });
                         },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          carouselImages[index],
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
+                        itemBuilder: (context, index) {
+                          if (_isLoadingAct) {
                             return Container(
                               color: Colors.grey[300],
                               child: const Center(
-                                child: Icon(
-                                  Icons.broken_image,
-                                  size: 48,
-                                  color: Colors.grey,
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+
+                          if (_actData.isEmpty) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: const Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.image_not_supported,
+                                      size: 48,
+                                      color: Colors.grey,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      '暂无活动数据',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
-                          },
-                        );
-                      },
+                          }
+
+                          final act = _actData[index];
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ActDetailPage(
+                                    title: '活动详情',
+                                    contentPath: act['content'],
+                                    coverImage: act['cover'],
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Image.asset(
+                              act['cover'],
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.grey[300],
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.broken_image,
+                                      size: 48,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -248,7 +261,7 @@ class _TripPageState extends State<TripPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(
-                      carouselImages.length,
+                      _actData.isEmpty ? 1 : _actData.length,
                       (index) => Container(
                         margin: const EdgeInsets.symmetric(horizontal: 2),
                         width: 8,
@@ -277,15 +290,7 @@ class _TripPageState extends State<TripPage> {
           SliverPadding(
             padding: const EdgeInsets.only(bottom: 16),
             sliver: SliverToBoxAdapter(
-              child: SizedBox(
-                height: 220,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: popularAttractions.length,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemBuilder: (context, index) => AttractionCard(attraction: popularAttractions[index]),
-                ),
-              ),
+              child: const ScenicAttractionCard(),
             ),
           ),
 
@@ -310,128 +315,6 @@ class _TripPageState extends State<TripPage> {
                 childCount: strategies.length,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class AiInputWidget extends StatefulWidget {
-  const AiInputWidget({super.key});
-  @override
-  State<StatefulWidget> createState() {
-    return _AiInputWidgetState();
-  }
-}
-
-class _AiInputWidgetState extends State<AiInputWidget> {
-  final TextEditingController inputControl = TextEditingController();
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '小旅助手',
-            style: Theme.of(context).textTheme.displaySmall!.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          SizedBox(height: 10),
-          SizedBox(
-            height: 60,
-            width: 300,
-            child: TextField(
-              controller: inputControl,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(40)),
-                ),
-                hint: Text(
-                  '向小旅游助手提问',
-                  style: Theme.of(context).textTheme.bodySmall!.copyWith(
-                    color: Theme.of(context).colorScheme.secondary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(padding: EdgeInsets.only(left: 30), child: Text('建议:')),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                spacing: 7,
-                children: [
-                  SizedBox(
-                    width: 160,
-                    height: 22,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(10, 2, 2, 2),
-                        child: Text(
-                          '规划一下去遵义旅游的行程',
-                          style: Theme.of(context).textTheme.labelSmall!
-                              .copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 60,
-                    height: 22,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(10, 2, 2, 2),
-                        child: Text(
-                          '最近热门',
-                          style: Theme.of(context).textTheme.labelSmall!
-                              .copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 165,
-                    height: 22,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(10, 2, 2, 2),
-                        child: Text(
-                          '去红色场馆参观的注意事项',
-                          style: Theme.of(context).textTheme.labelSmall!
-                              .copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              Expanded(flex: 1, child: SizedBox(height: 1)),
-            ],
           ),
         ],
       ),
