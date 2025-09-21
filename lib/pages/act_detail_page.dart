@@ -48,9 +48,10 @@ class _ActDetailPageState extends State<ActDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('活动详情'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: Colors.red[700],
+        foregroundColor: Colors.white,
         elevation: 1,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
       backgroundColor: Colors.white,
       body: _isLoading

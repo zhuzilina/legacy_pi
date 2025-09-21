@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:defer_pointer/defer_pointer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/article.dart';
 import '../models/content_item.dart';
 import '../widgets/rich_content_widget.dart';
@@ -28,6 +29,10 @@ class FullContentDialog extends StatefulWidget {
   final bool enableTts; // 新增：是否启用TTS功能
   final bool autoPlay; // 新增：是否自动播放TTS
 
+  // 持久化自动播放设置
+  static const String _autoPlayKey = 'tts_auto_play_enabled';
+  static const String _selectedVoiceKey = 'tts_selected_voice';
+
   const FullContentDialog({
     super.key,
     required this.article,
@@ -49,6 +54,18 @@ class FullContentDialog extends StatefulWidget {
 
   @override
   State<FullContentDialog> createState() => _FullContentDialogState();
+
+  /// 获取自动播放设置
+  static Future<bool> getAutoPlaySetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_autoPlayKey) ?? false;
+  }
+
+  /// 获取选择的音色设置
+  static Future<String> getSelectedVoiceSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_selectedVoiceKey) ?? 'zh-CN-XiaoxiaoNeural';
+  }
 
   /// 显示全文内容对话框的便捷方法
   static Future<T?> show<T>({
@@ -132,6 +149,30 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
   // 状态管理定时器
   Timer? _statusCheckTimer;
 
+  // 保存自动播放设置
+  Future<void> _saveAutoPlaySetting(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(FullContentDialog._autoPlayKey, value);
+  }
+
+  // 获取自动播放设置
+  Future<bool> _getAutoPlaySetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(FullContentDialog._autoPlayKey) ?? false;
+  }
+
+  // 保存音色设置
+  Future<void> _saveSelectedVoiceSetting(String voice) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(FullContentDialog._selectedVoiceKey, voice);
+  }
+
+  // 获取音色设置
+  Future<String> _getSelectedVoiceSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(FullContentDialog._selectedVoiceKey) ?? 'zh-CN-XiaoxiaoNeural';
+  }
+
   // 滚动检测相关状态
   final ScrollController _scrollController = ScrollController();
   bool _showAudioPlayer = true;
@@ -141,6 +182,9 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
   @override
   void initState() {
     super.initState();
+    // 从持久化存储加载设置
+    _loadSettings();
+
     // 如果启用TTS，初始化音频加载
     if (widget.enableTts) {
       _initializeTts();
@@ -152,6 +196,18 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
 
     // 添加滚动监听器
     _scrollController.addListener(_handleScroll);
+  }
+
+  // 加载所有设置
+  Future<void> _loadSettings() async {
+    final autoPlaySetting = await _getAutoPlaySetting();
+    final voiceSetting = await _getSelectedVoiceSetting();
+    if (!_isDisposed) {
+      setState(() {
+        _autoPlay = autoPlaySetting;
+        _selectedVoice = voiceSetting;
+      });
+    }
   }
 
   @override
@@ -462,8 +518,9 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20),
@@ -497,7 +554,7 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
                           ),
                         ),
                         Text(
-                          '打开对话框后自动播放音频',
+                          '下次打开文章时自动播放',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -508,24 +565,19 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
                   ),
                   Switch(
                     value: _autoPlay,
-                    onChanged: (bool value) {
+                    onChanged: (bool value) async {
+                      // 保存设置到持久化存储
+                      await _saveAutoPlaySetting(value);
+
+                      // 更新主widget状态
+                      this.setState(() {
+                        _autoPlay = value;
+                      });
+                      // 更新抽屉内状态
                       setState(() {
                         _autoPlay = value;
                       });
-
-                      // 如果开启自动播放，立即开始播放
-                      if (_autoPlay && !_isPlaying && !_isPaused) {
-                        _startTtsPlayback();
-                      }
-                      // 如果关闭自动播放且当前正在播放，暂停播放
-                      else if (!_autoPlay && _isPlaying) {
-                        _stopTtsPlayback();
-                      }
                     },
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: Colors.red[700],
-                    inactiveThumbColor: Colors.grey[400],
-                    inactiveTrackColor: Colors.grey[300],
                   ),
                 ],
               ),
@@ -595,8 +647,16 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
                           child: Text('云健 (男声)', style: TextStyle(fontSize: 14)),
                         ),
                       ],
-                      onChanged: (String? newValue) {
+                      onChanged: (String? newValue) async {
                         if (newValue != null && newValue != _selectedVoice) {
+                          // 保存音色设置到持久化存储
+                          await _saveSelectedVoiceSetting(newValue);
+
+                          // 更新主widget状态
+                          this.setState(() {
+                            _selectedVoice = newValue;
+                          });
+                          // 更新抽屉内状态
                           setState(() {
                             _selectedVoice = newValue;
                           });
@@ -604,7 +664,7 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
                           // 如果当前正在播放或暂停，停止播放并清除缓存
                           if (_isPlaying || _isPaused) {
                             _ttsService.stop();
-                            setState(() {
+                            this.setState(() {
                               _isPlaying = false;
                               _isPaused = false;
                               _currentTime = '00:00';
@@ -624,6 +684,7 @@ class _FullContentDialogState extends State<FullContentDialog> with TickerProvid
             ),
           ],
         ),
+      ),
       ),
     );
   }

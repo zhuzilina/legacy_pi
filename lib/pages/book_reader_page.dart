@@ -231,7 +231,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
   return Container(
     height: kToolbarHeight + MediaQuery.of(context).padding.top,
     decoration: BoxDecoration(
-      color: Colors.red[600],
+      color: Colors.red[700],
       boxShadow: [
         BoxShadow(
           color: Colors.black.withValues(alpha: 0.1),
@@ -244,7 +244,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
       children: [
         Container(
           height: MediaQuery.of(context).padding.top,
-          color: Colors.red[600],
+          color: Colors.red[700],
         ),
         Container(
           height: kToolbarHeight,
@@ -365,7 +365,7 @@ Widget _buildContent() {
             child: LinearProgressIndicator(
               value: _totalPages > 0 ? (_currentPage + 1) / _totalPages : 0,
               backgroundColor: Colors.grey[300],
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.red[600]!),
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.red[700]!),
             ),
           ),
           const SizedBox(width: 8),
